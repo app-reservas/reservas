@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — ReservasApp</title>
+  <link rel="stylesheet" href="../assets/css/main.css">
+</head>
+<body class="admin-page">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span>📅</span> ReservasApp
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#negocios"    class="nav-item active" data-section="negocios">🏪 Negocios</a>
+      <a href="#usuarios"    class="nav-item"        data-section="usuarios">👥 Usuarios</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="admin-nombre">Cargando...</span>
+      <button id="btn-logout" class="btn-logout">Salir</button>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main-content">
+
+    <!-- ══ NEGOCIOS ══════════════════════════════════════ -->
+    <section id="section-negocios" class="section active">
+      <div class="section-header">
+        <h2>Negocios</h2>
+        <button class="btn-primary" id="btn-nuevo-negocio">+ Nuevo negocio</button>
+      </div>
+
+      <div id="lista-negocios" class="cards-grid">
+        <p class="cargando">Cargando...</p>
+      </div>
+    </section>
+
+    <!-- ══ USUARIOS ══════════════════════════════════════ -->
+    <section id="section-usuarios" class="section hidden">
+      <div class="section-header">
+        <h2>Usuarios / Gerentes</h2>
+      </div>
+      <div id="lista-usuarios" class="table-wrap">
+        <p class="cargando">Cargando...</p>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══ MODAL NEGOCIO ═════════════════════════════════ -->
+  <div id="modal-negocio" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-negocio-title">Nuevo negocio</h3>
+        <button class="modal-close" id="btn-cerrar-modal-negocio">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nombre *</label>
+            <input type="text" id="neg-nombre" placeholder="Ej: Barbería Central">
+          </div>
+          <div class="form-group">
+            <label>Slug (URL) *</label>
+            <input type="text" id="neg-slug" placeholder="barberia-central">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descripción</label>
+          <textarea id="neg-descripcion" rows="3"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Teléfono / WhatsApp</label>
+            <input type="tel" id="neg-telefono" placeholder="+54 9 351 ...">
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="neg-email">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Color principal</label>
+            <input type="color" id="neg-color" value="#3B5BDB">
+          </div>
+          <div class="form-group">
+            <label>Logo</label>
+            <div id="neg-logo-preview" class="img-preview-small hidden"></div>
+            <button class="btn-secondary" id="btn-upload-logo">📷 Subir logo</button>
+            <input type="hidden" id="neg-logo-url">
+          </div>
+        </div>
+        <div id="neg-error" class="msg-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="btn-cancelar-modal-negocio">Cancelar</button>
+        <button class="btn-primary"   id="btn-guardar-negocio">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase + Cloudinary -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script>
+    let currentUser = null;
+    let editingNegocioId = null;
+
+    // ── AUTH GUARD ────────────────────────────────────────
+    auth.onAuthStateChanged(async user => {
+      if (!user) { location.href = '../index.html'; return; }
+      const snap = await db.collection('usuarios').doc(user.uid).get();
+      if (!snap.exists || snap.data().rol !== 'superadmin') { location.href = '../index.html'; return; }
+      currentUser = { uid: user.uid, ...snap.data() };
+      document.getElementById('admin-nombre').textContent = currentUser.nombre;
+      cargarNegocios();
+      cargarUsuarios();
+    });
+
+    document.getElementById('btn-logout').addEventListener('click', async () => {
+      await auth.signOut(); location.href = '../index.html';
+    });
+
+    // ── NAVEGACIÓN ────────────────────────────────────────
+    document.querySelectorAll('.nav-item').forEach(item => {
+      item.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        document.querySelectorAll('.section').forEach(s => { s.classList.add('hidden'); s.classList.remove('active'); });
+        item.classList.add('active');
+        document.getElementById('section-' + item.dataset.section).classList.remove('hidden');
+      });
+    });
+
+    // ── NEGOCIOS ──────────────────────────────────────────
+    async function cargarNegocios() {
+      const cont = document.getElementById('lista-negocios');
+      cont.innerHTML = '<p class="cargando">Cargando...</p>';
+      const snap = await db.collection('negocios').orderBy('creado_en','desc').get();
+      if (snap.empty) { cont.innerHTML = '<p class="empty">No hay negocios todavía.</p>'; return; }
+      cont.innerHTML = '';
+      snap.forEach(doc => {
+        const n = doc.data();
+        const card = document.createElement('div');
+        card.className = 'negocio-card';
+        card.innerHTML = `
+          <div class="negocio-card-color" style="background:${n.color_primario||'#3B5BDB'}"></div>
+          ${n.logo ? `<img src="${n.logo}" class="negocio-logo" alt="logo">` : '<div class="negocio-logo-placeholder">🏪</div>'}
+          <div class="negocio-info">
+            <strong>${n.nombre}</strong>
+            <span class="slug">/${n.slug}</span>
+            <span class="badge ${n.activo?'badge-green':'badge-gray'}">${n.activo?'Activo':'Inactivo'}</span>
+          </div>
+          <div class="negocio-actions">
+            <a href="negocio.html?id=${doc.id}" class="btn-sm btn-primary">Gestionar</a>
+            <button class="btn-sm btn-secondary" onclick="editarNegocio('${doc.id}')">Editar</button>
+            <button class="btn-sm btn-danger"    onclick="toggleNegocio('${doc.id}', ${n.activo})">
+              ${n.activo ? 'Desactivar' : 'Activar'}
+            </button>
+          </div>`;
+        cont.appendChild(card);
+      });
+    }
+
+    document.getElementById('btn-nuevo-negocio').addEventListener('click', () => {
+      editingNegocioId = null;
+      document.getElementById('modal-negocio-title').textContent = 'Nuevo negocio';
+      limpiarFormNegocio();
+      document.getElementById('modal-negocio').classList.remove('hidden');
+    });
+
+    document.getElementById('btn-cerrar-modal-negocio').addEventListener('click',  cerrarModalNegocio);
+    document.getElementById('btn-cancelar-modal-negocio').addEventListener('click', cerrarModalNegocio);
+    function cerrarModalNegocio() { document.getElementById('modal-negocio').classList.add('hidden'); }
+
+    function limpiarFormNegocio() {
+      ['neg-nombre','neg-slug','neg-descripcion','neg-telefono','neg-email','neg-logo-url'].forEach(id => {
+        document.getElementById(id).value = '';
+      });
+      document.getElementById('neg-color').value = '#3B5BDB';
+      document.getElementById('neg-logo-preview').classList.add('hidden');
+      document.getElementById('neg-error').classList.add('hidden');
+    }
+
+    window.editarNegocio = async (id) => {
+      editingNegocioId = id;
+      const snap = await db.collection('negocios').doc(id).get();
+      const n = snap.data();
+      document.getElementById('neg-nombre').value      = n.nombre || '';
+      document.getElementById('neg-slug').value        = n.slug || '';
+      document.getElementById('neg-descripcion').value = n.descripcion || '';
+      document.getElementById('neg-telefono').value    = n.telefono || '';
+      document.getElementById('neg-email').value       = n.email || '';
+      document.getElementById('neg-color').value       = n.color_primario || '#3B5BDB';
+      document.getElementById('neg-logo-url').value    = n.logo || '';
+      if (n.logo) {
+        const prev = document.getElementById('neg-logo-preview');
+        prev.innerHTML = `<img src="${n.logo}" style="max-height:60px">`;
+        prev.classList.remove('hidden');
+      }
+      document.getElementById('modal-negocio-title').textContent = 'Editar negocio';
+      document.getElementById('modal-negocio').classList.remove('hidden');
+    };
+
+    window.toggleNegocio = async (id, activo) => {
+      if (!confirm(activo ? '¿Desactivar este negocio?' : '¿Activar este negocio?')) return;
+      await db.collection('negocios').doc(id).update({ activo: !activo });
+      cargarNegocios();
+    };
+
+    document.getElementById('btn-guardar-negocio').addEventListener('click', async () => {
+      const nombre = document.getElementById('neg-nombre').value.trim();
+      const slug   = document.getElementById('neg-slug').value.trim().toLowerCase().replace(/\s+/g,'-');
+      if (!nombre || !slug) { showErrNeg('Nombre y slug son obligatorios.'); return; }
+
+      const data = {
+        nombre,
+        slug,
+        descripcion:    document.getElementById('neg-descripcion').value.trim(),
+        telefono:       document.getElementById('neg-telefono').value.trim(),
+        email:          document.getElementById('neg-email').value.trim(),
+        color_primario: document.getElementById('neg-color').value,
+        logo:           document.getElementById('neg-logo-url').value || null,
+        activo: true,
+      };
+
+      try {
+        if (editingNegocioId) {
+          await db.collection('negocios').doc(editingNegocioId).update(data);
+        } else {
+          data.creado_en = firebase.firestore.FieldValue.serverTimestamp();
+          // Crear también sub-docs de configuración por defecto
+          const ref = await db.collection('negocios').add(data);
+          await ref.collection('configuracion').doc('config').set({
+            anticipacion_min: 60,
+            anticipacion_max: 30,
+            intervalo_min: 30,
+            permitir_cancelar: true,
+            horas_cancelar: 24,
+            anticipacion_max_dias: 90,
+            mensaje_confirmacion: '¡Tu turno fue confirmado!',
+            mensaje_cancelacion: 'Tu turno fue cancelado. Podés reservar nuevamente cuando quieras.',
+          });
+        }
+        cerrarModalNegocio();
+        cargarNegocios();
+      } catch(e) {
+        showErrNeg('Error al guardar: ' + e.message);
+      }
+    });
+
+    function showErrNeg(msg) {
+      const el = document.getElementById('neg-error');
+      el.textContent = msg; el.classList.remove('hidden');
+    }
+
+    // ── UPLOAD LOGO (CLOUDINARY) ──────────────────────────
+    document.getElementById('btn-upload-logo').addEventListener('click', () => {
+      const widget = cloudinary.createUploadWidget({
+        cloudName: CLOUDINARY_CLOUD,
+        uploadPreset: CLOUDINARY_PRESET,
+        folder: 'reservas/logos',
+        sources: ['local','camera'],
+        cropping: true,
+        croppingAspectRatio: 1,
+        maxFileSize: 2000000,
+      }, (err, result) => {
+        if (result.event === 'success') {
+          const url = result.info.secure_url;
+          document.getElementById('neg-logo-url').value = url;
+          const prev = document.getElementById('neg-logo-preview');
+          prev.innerHTML = `<img src="${url}" style="max-height:60px">`;
+          prev.classList.remove('hidden');
+        }
+      });
+      widget.open();
+    });
+
+    // ── USUARIOS ──────────────────────────────────────────
+    async function cargarUsuarios() {
+      const cont = document.getElementById('lista-usuarios');
+      cont.innerHTML = '<p class="cargando">Cargando...</p>';
+      const [uSnap, nSnap] = await Promise.all([
+        db.collection('usuarios').orderBy('creado_en','desc').get(),
+        db.collection('negocios').get()
+      ]);
+      const negocios = {};
+      nSnap.forEach(d => negocios[d.id] = d.data().nombre);
+
+      if (uSnap.empty) { cont.innerHTML = '<p class="empty">No hay usuarios.</p>'; return; }
+
+      let html = `<table class="data-table">
+        <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Negocio</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>`;
+      uSnap.forEach(doc => {
+        const u = doc.data();
+        html += `<tr>
+          <td>${u.nombre}</td>
+          <td>${u.email}</td>
+          <td><span class="badge ${u.rol==='superadmin'?'badge-purple':'badge-blue'}">${u.rol}</span></td>
+          <td>${u.negocio_id ? (negocios[u.negocio_id]||u.negocio_id) : '—'}</td>
+          <td><span class="badge ${u.activo?'badge-green':'badge-orange'}">${u.activo?'Activo':'Pendiente'}</span></td>
+          <td class="td-actions">
+            ${!u.activo ? `<button class="btn-sm btn-primary" onclick="activarUsuario('${doc.id}')">Activar</button>` : ''}
+            ${u.rol !== 'superadmin' ? `<button class="btn-sm btn-secondary" onclick="asignarNegocio('${doc.id}')">Asignar negocio</button>` : ''}
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      cont.innerHTML = html;
+    }
+
+    window.activarUsuario = async (uid) => {
+      if (!confirm('¿Activar este usuario?')) return;
+      await db.collection('usuarios').doc(uid).update({ activo: true });
+      cargarUsuarios();
+    };
+
+    window.asignarNegocio = async (uid) => {
+      const snap = await db.collection('negocios').where('activo','==',true).get();
+      if (snap.empty) { alert('No hay negocios activos.'); return; }
+      let opts = '';
+      snap.forEach(d => opts += `<option value="${d.id}">${d.data().nombre}</option>`);
+      // Simple prompt con select
+      const sel = document.createElement('select');
+      sel.innerHTML = `<option value="">— Elegir negocio —</option>` + opts;
+      const negId = prompt('ID del negocio (copiá de la lista):\n' + snap.docs.map(d=>d.id+' → '+d.data().nombre).join('\n'));
+      if (!negId) return;
+      await db.collection('usuarios').doc(uid).update({ negocio_id: negId });
+      alert('Negocio asignado.');
+      cargarUsuarios();
+    };
+  </script>
+  <!-- Cloudinary widget -->
+  <script src="https://upload-widget.cloudinary.com/global/all.js"></script>
+</body>
+</html>

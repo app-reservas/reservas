@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi Negocio — ReservasApp</title>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <link rel="stylesheet" href="../assets/css/negocio.css">
+</head>
+<body class="admin-page">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <span id="sb-negocio-nombre">Mi Negocio</span>
+    </div>
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-section="servicios">✂️ Servicios</a>
+      <a class="nav-item"        data-section="profesionales">👤 Profesionales</a>
+      <a class="nav-item"        data-section="horarios">🕐 Horarios</a>
+      <a class="nav-item"        data-section="bloqueos">🚫 Bloqueos</a>
+      <a class="nav-item"        data-section="configuracion">⚙️ Configuración</a>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="sb-user-nombre">…</span>
+      <button id="btn-logout" class="btn-logout">Salir</button>
+    </div>
+  </aside>
+
+  <main class="main-content">
+
+    <!-- ══ SERVICIOS ════════════════════════════════════ -->
+    <section id="section-servicios" class="section active">
+      <div class="section-header">
+        <h2>Servicios</h2>
+        <button class="btn-primary" id="btn-nuevo-servicio">+ Nuevo servicio</button>
+      </div>
+      <div id="lista-servicios" class="servicios-grid"></div>
+    </section>
+
+    <!-- ══ PROFESIONALES ════════════════════════════════ -->
+    <section id="section-profesionales" class="section hidden">
+      <div class="section-header">
+        <h2>Profesionales</h2>
+        <button class="btn-primary" id="btn-nuevo-prof">+ Nuevo profesional</button>
+      </div>
+      <div id="lista-profesionales" class="profs-grid"></div>
+    </section>
+
+    <!-- ══ HORARIOS ══════════════════════════════════════ -->
+    <section id="section-horarios" class="section hidden">
+      <div class="section-header">
+        <h2>Horarios</h2>
+      </div>
+      <div class="horarios-selector">
+        <label>Profesional:</label>
+        <select id="sel-prof-horarios"><option value="">— Seleccioná —</option></select>
+      </div>
+      <div id="tabla-horarios" class="horarios-wrap hidden"></div>
+    </section>
+
+    <!-- ══ BLOQUEOS ══════════════════════════════════════ -->
+    <section id="section-bloqueos" class="section hidden">
+      <div class="section-header">
+        <h2>Bloqueos de agenda</h2>
+        <button class="btn-primary" id="btn-nuevo-bloqueo">+ Nuevo bloqueo</button>
+      </div>
+      <div id="lista-bloqueos" class="table-wrap"></div>
+    </section>
+
+    <!-- ══ CONFIGURACIÓN ════════════════════════════════ -->
+    <section id="section-configuracion" class="section hidden">
+      <div class="section-header">
+        <h2>Configuración del negocio</h2>
+      </div>
+      <div class="config-grid">
+        <div class="config-card">
+          <h3>Datos generales</h3>
+          <div class="form-group"><label>Nombre del negocio</label><input type="text" id="cfg-nombre"></div>
+          <div class="form-group"><label>Descripción</label><textarea id="cfg-descripcion" rows="3"></textarea></div>
+          <div class="form-row">
+            <div class="form-group"><label>Teléfono / WhatsApp</label><input type="tel" id="cfg-telefono"></div>
+            <div class="form-group"><label>Email</label><input type="email" id="cfg-email"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Dirección</label><input type="text" id="cfg-direccion"></div>
+            <div class="form-group"><label>Color principal</label><input type="color" id="cfg-color"></div>
+          </div>
+          <div class="form-group">
+            <label>Logo</label>
+            <div id="cfg-logo-preview" class="img-preview-small"></div>
+            <button class="btn-secondary" id="btn-cfg-logo">📷 Cambiar logo</button>
+            <input type="hidden" id="cfg-logo-url">
+          </div>
+          <button class="btn-primary" id="btn-guardar-negocio-cfg">Guardar datos</button>
+        </div>
+
+        <div class="config-card">
+          <h3>Reservas</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Anticipación mínima (hs)</label>
+              <input type="number" id="cfg-ant-min" min="0" value="1">
+            </div>
+            <div class="form-group">
+              <label>Anticipación máxima (días)</label>
+              <input type="number" id="cfg-ant-max" min="1" value="90">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Intervalo entre turnos (min)</label>
+              <input type="number" id="cfg-intervalo" min="5" step="5" value="30">
+            </div>
+            <div class="form-group">
+              <label>¿Permitir cancelar?</label>
+              <select id="cfg-cancelar">
+                <option value="1">Sí</option>
+                <option value="0">No</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Horas mínimas para cancelar</label>
+            <input type="number" id="cfg-hs-cancelar" min="0" value="24">
+          </div>
+          <div class="form-group">
+            <label>Mensaje de confirmación</label>
+            <textarea id="cfg-msg-confirmacion" rows="2">¡Tu turno fue confirmado!</textarea>
+          </div>
+          <div class="form-group">
+            <label>Mensaje de cancelación</label>
+            <textarea id="cfg-msg-cancelacion" rows="2">Tu turno fue cancelado.</textarea>
+          </div>
+          <button class="btn-primary" id="btn-guardar-config">Guardar configuración</button>
+        </div>
+      </div>
+      <div id="cfg-ok" class="msg-ok hidden" style="margin-top:1rem"></div>
+    </section>
+
+  </main><!-- /main-content -->
+
+  <!-- ══ MODAL SERVICIO ═══════════════════════════════ -->
+  <div id="modal-servicio" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-srv-title">Nuevo servicio</h3>
+        <button class="modal-close" onclick="cerrarModal('modal-servicio')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nombre *</label>
+            <input type="text" id="srv-nombre" placeholder="Corte de cabello">
+          </div>
+          <div class="form-group">
+            <label>Duración (min) *</label>
+            <input type="number" id="srv-duracion" min="5" step="5" value="30">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Precio ($)</label>
+            <input type="number" id="srv-precio" min="0" value="0">
+          </div>
+          <div class="form-group">
+            <label>Anticipo ($)</label>
+            <input type="number" id="srv-anticipo" min="0" value="0">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descripción</label>
+          <textarea id="srv-descripcion" rows="2"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Color</label>
+            <input type="color" id="srv-color" value="#3B5BDB">
+          </div>
+          <div class="form-group">
+            <label>Visible al público</label>
+            <select id="srv-visible">
+              <option value="1">Sí</option>
+              <option value="0">No</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Imagen del servicio</label>
+          <div id="srv-img-preview" class="img-preview-small"></div>
+          <button class="btn-secondary" id="btn-srv-img">📷 Subir imagen</button>
+          <input type="hidden" id="srv-imagen-url">
+        </div>
+        <div id="srv-error" class="msg-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModal('modal-servicio')">Cancelar</button>
+        <button class="btn-primary" id="btn-guardar-servicio">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MODAL PROFESIONAL ════════════════════════════ -->
+  <div id="modal-profesional" class="modal hidden">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modal-prof-title">Nuevo profesional</h3>
+        <button class="modal-close" onclick="cerrarModal('modal-profesional')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Nombre *</label>
+            <input type="text" id="prof-nombre" placeholder="María García">
+          </div>
+          <div class="form-group">
+            <label>Especialidad</label>
+            <input type="text" id="prof-especialidad" placeholder="Colorista">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="prof-email">
+          </div>
+          <div class="form-group">
+            <label>Teléfono</label>
+            <input type="tel" id="prof-telefono">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Descripción / Bio</label>
+          <textarea id="prof-descripcion" rows="2"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Servicios que realiza</label>
+          <div id="prof-servicios-checks" class="checks-grid"></div>
+        </div>
+        <div class="form-group">
+          <label>Foto</label>
+          <div id="prof-foto-preview" class="avatar-preview"></div>
+          <button class="btn-secondary" id="btn-prof-foto">📷 Subir foto</button>
+          <input type="hidden" id="prof-foto-url">
+        </div>
+        <div id="prof-error" class="msg-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModal('modal-profesional')">Cancelar</button>
+        <button class="btn-primary" id="btn-guardar-prof">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MODAL BLOQUEO ════════════════════════════════ -->
+  <div id="modal-bloqueo" class="modal hidden">
+    <div class="modal-box" style="max-width:440px">
+      <div class="modal-header">
+        <h3 id="modal-blq-title">Nuevo bloqueo</h3>
+        <button class="modal-close" onclick="cerrarModal('modal-bloqueo')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Profesional (opcional — vacío = todo el negocio)</label>
+          <select id="blq-prof"><option value="">— Todo el negocio —</option></select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Desde *</label>
+            <input type="datetime-local" id="blq-desde">
+          </div>
+          <div class="form-group">
+            <label>Hasta *</label>
+            <input type="datetime-local" id="blq-hasta">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Motivo</label>
+          <input type="text" id="blq-motivo" placeholder="Vacaciones, feriado...">
+        </div>
+        <div id="blq-error" class="msg-error hidden"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="cerrarModal('modal-bloqueo')">Cancelar</button>
+        <button class="btn-primary" id="btn-guardar-bloqueo">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase + Cloudinary -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="https://upload-widget.cloudinary.com/global/all.js"></script>
+  <script>
+
+// ════════════════════════════════════════════════════════════
+//  ESTADO GLOBAL
+// ════════════════════════════════════════════════════════════
+let negocioId    = null;
+let currentUser  = null;
+let servicios    = {};   // cache local id→data
+let profesionales = {};  // cache local id→data
+let editingSrvId  = null;
+let editingProfId = null;
+let editingBlqId  = null;
+
+// ── DÍAS ─────────────────────────────────────────────────────
+const DIAS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+
+// ════════════════════════════════════════════════════════════
+//  AUTH GUARD
+// ════════════════════════════════════════════════════════════
+auth.onAuthStateChanged(async user => {
+  if (!user) { location.href = '../index.html'; return; }
+  const snap = await db.collection('usuarios').doc(user.uid).get();
+  if (!snap.exists) { location.href = '../index.html'; return; }
+  currentUser = { uid: user.uid, ...snap.data() };
+
+  // Superadmin puede venir con ?id=negocioId
+  if (currentUser.rol === 'superadmin') {
+    const params = new URLSearchParams(location.search);
+    negocioId = params.get('id');
+  } else {
+    negocioId = currentUser.negocio_id;
+  }
+
+  if (!negocioId) { alert('No tenés un negocio asignado.'); location.href = '../index.html'; return; }
+
+  document.getElementById('sb-user-nombre').textContent = currentUser.nombre;
+
+  const negSnap = await db.collection('negocios').doc(negocioId).get();
+  if (!negSnap.exists) { alert('Negocio no encontrado.'); return; }
+  document.getElementById('sb-negocio-nombre').textContent = negSnap.data().nombre;
+
+  cargarServiciosCache().then(() => {
+    cargarServicios();
+    cargarProfesionales();
+    cargarBloqueos();
+    cargarConfiguracion(negSnap.data());
+    poblarSelectProfHorarios();
+    poblarSelectBloqueo();
+  });
+});
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  await auth.signOut(); location.href = '../index.html';
+});
+
+// ════════════════════════════════════════════════════════════
+//  NAVEGACIÓN
+// ════════════════════════════════════════════════════════════
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', e => {
+    e.preventDefault();
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => { s.classList.add('hidden'); });
+    item.classList.add('active');
+    document.getElementById('section-' + item.dataset.section).classList.remove('hidden');
+  });
+});
+
+// ════════════════════════════════════════════════════════════
+//  SERVICIOS
+// ════════════════════════════════════════════════════════════
+async function cargarServiciosCache() {
+  const snap = await db.collection('negocios').doc(negocioId).collection('servicios').get();
+  servicios = {};
+  snap.forEach(d => servicios[d.id] = d.data());
+}
+
+async function cargarServicios() {
+  const cont = document.getElementById('lista-servicios');
+  cont.innerHTML = '<p class="cargando">Cargando...</p>';
+  await cargarServiciosCache();
+  const entries = Object.entries(servicios);
+  if (!entries.length) { cont.innerHTML = '<p class="empty">No hay servicios. Creá el primero.</p>'; return; }
+  cont.innerHTML = '';
+  entries.forEach(([id, s]) => {
+    const card = document.createElement('div');
+    card.className = 'srv-card';
+    card.innerHTML = `
+      <div class="srv-color-bar" style="background:${s.color||'#3B5BDB'}"></div>
+      <div class="srv-body">
+        <div class="srv-icon">${s.imagen ? `<img src="${s.imagen}">` : '✂️'}</div>
+        <div class="srv-info">
+          <strong>${s.nombre}</strong>
+          <span>${s.duracion_min} min · $${Number(s.precio||0).toLocaleString('es-AR')}</span>
+          ${s.anticipo > 0 ? `<span class="badge badge-orange">Anticipo $${Number(s.anticipo).toLocaleString('es-AR')}</span>` : ''}
+          <span class="badge ${s.activo!==false ? 'badge-green':'badge-gray'}">${s.activo!==false?'Activo':'Inactivo'}</span>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-sm btn-secondary" onclick="editarServicio('${id}')">Editar</button>
+        <button class="btn-sm btn-danger"    onclick="toggleServicio('${id}', ${s.activo!==false})">
+          ${s.activo!==false?'Desactivar':'Activar'}
+        </button>
+      </div>`;
+    cont.appendChild(card);
+  });
+}
+
+document.getElementById('btn-nuevo-servicio').addEventListener('click', () => {
+  editingSrvId = null;
+  document.getElementById('modal-srv-title').textContent = 'Nuevo servicio';
+  limpiarForm(['srv-nombre','srv-descripcion','srv-imagen-url']);
+  document.getElementById('srv-duracion').value = 30;
+  document.getElementById('srv-precio').value   = 0;
+  document.getElementById('srv-anticipo').value  = 0;
+  document.getElementById('srv-color').value    = '#3B5BDB';
+  document.getElementById('srv-visible').value  = '1';
+  document.getElementById('srv-img-preview').innerHTML = '';
+  ocultarError('srv-error');
+  abrirModal('modal-servicio');
+});
+
+window.editarServicio = (id) => {
+  editingSrvId = id;
+  const s = servicios[id];
+  document.getElementById('modal-srv-title').textContent = 'Editar servicio';
+  document.getElementById('srv-nombre').value      = s.nombre || '';
+  document.getElementById('srv-duracion').value    = s.duracion_min || 30;
+  document.getElementById('srv-precio').value      = s.precio || 0;
+  document.getElementById('srv-anticipo').value    = s.anticipo || 0;
+  document.getElementById('srv-descripcion').value = s.descripcion || '';
+  document.getElementById('srv-color').value       = s.color || '#3B5BDB';
+  document.getElementById('srv-visible').value     = s.visible_publico !== false ? '1' : '0';
+  document.getElementById('srv-imagen-url').value  = s.imagen || '';
+  if (s.imagen) document.getElementById('srv-img-preview').innerHTML = `<img src="${s.imagen}" style="max-height:60px;border-radius:6px">`;
+  ocultarError('srv-error');
+  abrirModal('modal-servicio');
+};
+
+window.toggleServicio = async (id, activo) => {
+  if (!confirm(activo ? '¿Desactivar este servicio?' : '¿Activar este servicio?')) return;
+  await db.collection('negocios').doc(negocioId).collection('servicios').doc(id).update({ activo: !activo });
+  cargarServicios();
+};
+
+document.getElementById('btn-guardar-servicio').addEventListener('click', async () => {
+  const nombre   = document.getElementById('srv-nombre').value.trim();
+  const duracion = parseInt(document.getElementById('srv-duracion').value) || 30;
+  if (!nombre) { mostrarError('srv-error', 'El nombre es obligatorio.'); return; }
+  const data = {
+    nombre,
+    duracion_min:    duracion,
+    precio:          parseFloat(document.getElementById('srv-precio').value) || 0,
+    anticipo:        parseFloat(document.getElementById('srv-anticipo').value) || 0,
+    descripcion:     document.getElementById('srv-descripcion').value.trim(),
+    color:           document.getElementById('srv-color').value,
+    visible_publico: document.getElementById('srv-visible').value === '1',
+    imagen:          document.getElementById('srv-imagen-url').value || null,
+    activo:          true,
+  };
+  const ref = db.collection('negocios').doc(negocioId).collection('servicios');
+  if (editingSrvId) {
+    await ref.doc(editingSrvId).update(data);
+  } else {
+    data.creado_en = firebase.firestore.FieldValue.serverTimestamp();
+    await ref.add(data);
+  }
+  cerrarModal('modal-servicio');
+  await cargarServiciosCache();
+  cargarServicios();
+  poblarChecksProfServicios(); // actualizar checks si modal prof está abierto
+});
+
+document.getElementById('btn-srv-img').addEventListener('click', () =>
+  uploadCloudinary('srv-imagen-url', 'srv-img-preview', 'reservas/servicios', false));
+
+// ════════════════════════════════════════════════════════════
+//  PROFESIONALES
+// ════════════════════════════════════════════════════════════
+async function cargarProfesionalesCache() {
+  const snap = await db.collection('negocios').doc(negocioId).collection('profesionales').get();
+  profesionales = {};
+  snap.forEach(d => profesionales[d.id] = d.data());
+}
+
+async function cargarProfesionales() {
+  await cargarProfesionalesCache();
+  const cont = document.getElementById('lista-profesionales');
+  const entries = Object.entries(profesionales);
+  if (!entries.length) { cont.innerHTML = '<p class="empty">No hay profesionales. Creá el primero.</p>'; return; }
+  cont.innerHTML = '';
+  entries.forEach(([id, p]) => {
+    const serviciosNombres = (p.servicios_ids||[]).map(sid => servicios[sid]?.nombre || sid).join(', ') || '—';
+    const card = document.createElement('div');
+    card.className = 'prof-card';
+    card.innerHTML = `
+      ${p.foto
+        ? `<img src="${p.foto}" class="prof-avatar" alt="foto">`
+        : `<div class="prof-avatar prof-avatar-placeholder">${p.nombre.charAt(0)}</div>`}
+      <div class="prof-info">
+        <strong>${p.nombre}</strong>
+        ${p.especialidad ? `<span class="prof-esp">${p.especialidad}</span>` : ''}
+        <span class="prof-srvs">${serviciosNombres}</span>
+        <span class="badge ${p.activo!==false?'badge-green':'badge-gray'}">${p.activo!==false?'Activo':'Inactivo'}</span>
+      </div>
+      <div class="card-actions">
+        <button class="btn-sm btn-secondary" onclick="editarProfesional('${id}')">Editar</button>
+        <button class="btn-sm btn-secondary" onclick="verHorarios('${id}')">Horarios</button>
+        <button class="btn-sm btn-danger"    onclick="toggleProfesional('${id}', ${p.activo!==false})">
+          ${p.activo!==false?'Desactivar':'Activar'}
+        </button>
+      </div>`;
+    cont.appendChild(card);
+  });
+  poblarSelectProfHorarios();
+  poblarSelectBloqueo();
+}
+
+document.getElementById('btn-nuevo-prof').addEventListener('click', () => {
+  editingProfId = null;
+  document.getElementById('modal-prof-title').textContent = 'Nuevo profesional';
+  limpiarForm(['prof-nombre','prof-especialidad','prof-email','prof-telefono','prof-descripcion','prof-foto-url']);
+  document.getElementById('prof-foto-preview').innerHTML = '';
+  ocultarError('prof-error');
+  poblarChecksProfServicios();
+  abrirModal('modal-profesional');
+});
+
+window.editarProfesional = (id) => {
+  editingProfId = id;
+  const p = profesionales[id];
+  document.getElementById('modal-prof-title').textContent = 'Editar profesional';
+  document.getElementById('prof-nombre').value       = p.nombre || '';
+  document.getElementById('prof-especialidad').value = p.especialidad || '';
+  document.getElementById('prof-email').value        = p.email || '';
+  document.getElementById('prof-telefono').value     = p.telefono || '';
+  document.getElementById('prof-descripcion').value  = p.descripcion || '';
+  document.getElementById('prof-foto-url').value     = p.foto || '';
+  if (p.foto) document.getElementById('prof-foto-preview').innerHTML = `<img src="${p.foto}" class="prof-avatar">`;
+  ocultarError('prof-error');
+  poblarChecksProfServicios(p.servicios_ids || []);
+  abrirModal('modal-profesional');
+};
+
+window.toggleProfesional = async (id, activo) => {
+  if (!confirm(activo ? '¿Desactivar este profesional?' : '¿Activar?')) return;
+  await db.collection('negocios').doc(negocioId).collection('profesionales').doc(id).update({ activo: !activo });
+  cargarProfesionales();
+};
+
+function poblarChecksProfServicios(seleccionados = []) {
+  const cont = document.getElementById('prof-servicios-checks');
+  cont.innerHTML = '';
+  Object.entries(servicios).forEach(([sid, s]) => {
+    const label = document.createElement('label');
+    label.className = 'check-item';
+    label.innerHTML = `<input type="checkbox" value="${sid}" ${seleccionados.includes(sid)?'checked':''}> ${s.nombre}`;
+    cont.appendChild(label);
+  });
+}
+
+document.getElementById('btn-guardar-prof').addEventListener('click', async () => {
+  const nombre = document.getElementById('prof-nombre').value.trim();
+  if (!nombre) { mostrarError('prof-error', 'El nombre es obligatorio.'); return; }
+  const checks = document.querySelectorAll('#prof-servicios-checks input:checked');
+  const servicios_ids = Array.from(checks).map(c => c.value);
+  const data = {
+    nombre,
+    especialidad: document.getElementById('prof-especialidad').value.trim(),
+    email:        document.getElementById('prof-email').value.trim(),
+    telefono:     document.getElementById('prof-telefono').value.trim(),
+    descripcion:  document.getElementById('prof-descripcion').value.trim(),
+    foto:         document.getElementById('prof-foto-url').value || null,
+    servicios_ids,
+    activo: true,
+  };
+  const ref = db.collection('negocios').doc(negocioId).collection('profesionales');
+  if (editingProfId) {
+    await ref.doc(editingProfId).update(data);
+  } else {
+    data.creado_en = firebase.firestore.FieldValue.serverTimestamp();
+    const newRef = await ref.add(data);
+    // Crear horarios vacíos por defecto (lun-vie 09-18)
+    const batch = db.batch();
+    for (let dia = 0; dia <= 6; dia++) {
+      const hRef = db.collection('negocios').doc(negocioId)
+                     .collection('profesionales').doc(newRef.id)
+                     .collection('horarios').doc(String(dia));
+      batch.set(hRef, {
+        dia_semana:  dia,
+        hora_inicio: (dia >= 1 && dia <= 5) ? '09:00' : '',
+        hora_fin:    (dia >= 1 && dia <= 5) ? '18:00' : '',
+        activo:      (dia >= 1 && dia <= 5),
+      });
+    }
+    await batch.commit();
+  }
+  cerrarModal('modal-profesional');
+  cargarProfesionales();
+});
+
+document.getElementById('btn-prof-foto').addEventListener('click', () =>
+  uploadCloudinary('prof-foto-url', 'prof-foto-preview', 'reservas/profesionales', true));
+
+// ════════════════════════════════════════════════════════════
+//  HORARIOS
+// ════════════════════════════════════════════════════════════
+function poblarSelectProfHorarios() {
+  const sel = document.getElementById('sel-prof-horarios');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">— Seleccioná un profesional —</option>';
+  Object.entries(profesionales).forEach(([id, p]) => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = p.nombre;
+    sel.appendChild(opt);
+  });
+  if (current) sel.value = current;
+}
+
+document.getElementById('sel-prof-horarios').addEventListener('change', async function() {
+  const profId = this.value;
+  const wrap = document.getElementById('tabla-horarios');
+  if (!profId) { wrap.classList.add('hidden'); return; }
+  wrap.classList.remove('hidden');
+  wrap.innerHTML = '<p class="cargando">Cargando horarios...</p>';
+  await renderHorarios(profId, wrap);
+});
+
+window.verHorarios = (profId) => {
+  // Navegar a sección horarios y seleccionar ese profesional
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.section').forEach(s => s.classList.add('hidden'));
+  document.querySelector('[data-section="horarios"]').classList.add('active');
+  document.getElementById('section-horarios').classList.remove('hidden');
+  const sel = document.getElementById('sel-prof-horarios');
+  sel.value = profId;
+  sel.dispatchEvent(new Event('change'));
+};
+
+async function renderHorarios(profId, container) {
+  const snap = await db.collection('negocios').doc(negocioId)
+                        .collection('profesionales').doc(profId)
+                        .collection('horarios').get();
+  const horData = {};
+  snap.forEach(d => horData[d.id] = d.data());
+
+  let html = `<table class="horarios-table">
+    <thead><tr><th>Día</th><th>Activo</th><th>Desde</th><th>Hasta</th><th></th></tr></thead><tbody>`;
+  for (let dia = 0; dia <= 6; dia++) {
+    const h = horData[String(dia)] || { dia_semana: dia, activo: false, hora_inicio: '', hora_fin: '' };
+    html += `<tr data-dia="${dia}">
+      <td><strong>${DIAS[dia]}</strong></td>
+      <td><input type="checkbox" class="hor-activo" ${h.activo ? 'checked' : ''}></td>
+      <td><input type="time" class="hor-inicio" value="${h.hora_inicio||''}" ${!h.activo?'disabled':''}></td>
+      <td><input type="time" class="hor-fin"    value="${h.hora_fin||''}"   ${!h.activo?'disabled':''}></td>
+      <td><button class="btn-sm btn-primary hor-save-btn">Guardar</button></td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+
+  // Toggle activo habilita/deshabilita los inputs de hora
+  container.querySelectorAll('.hor-activo').forEach(chk => {
+    chk.addEventListener('change', function() {
+      const row = this.closest('tr');
+      row.querySelector('.hor-inicio').disabled = !this.checked;
+      row.querySelector('.hor-fin').disabled    = !this.checked;
+    });
+  });
+
+  // Guardar fila individual
+  container.querySelectorAll('.hor-save-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+      const row = this.closest('tr');
+      const dia = parseInt(row.dataset.dia);
+      const activo     = row.querySelector('.hor-activo').checked;
+      const hora_inicio = row.querySelector('.hor-inicio').value;
+      const hora_fin    = row.querySelector('.hor-fin').value;
+      if (activo && (!hora_inicio || !hora_fin)) {
+        alert('Ingresá hora de inicio y fin.'); return;
+      }
+      await db.collection('negocios').doc(negocioId)
+               .collection('profesionales').doc(profId)
+               .collection('horarios').doc(String(dia))
+               .set({ dia_semana: dia, activo, hora_inicio: activo ? hora_inicio : '', hora_fin: activo ? hora_fin : '' });
+      btn.textContent = '✅';
+      setTimeout(() => btn.textContent = 'Guardar', 1500);
+    });
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+//  BLOQUEOS
+// ════════════════════════════════════════════════════════════
+function poblarSelectBloqueo() {
+  const sel = document.getElementById('blq-prof');
+  sel.innerHTML = '<option value="">— Todo el negocio —</option>';
+  Object.entries(profesionales).forEach(([id, p]) => {
+    const opt = document.createElement('option');
+    opt.value = id; opt.textContent = p.nombre;
+    sel.appendChild(opt);
+  });
+}
+
+async function cargarBloqueos() {
+  const cont = document.getElementById('lista-bloqueos');
+  cont.innerHTML = '<p class="cargando">Cargando...</p>';
+  const snap = await db.collection('negocios').doc(negocioId).collection('bloqueos')
+                        .orderBy('fecha_inicio','desc').get();
+  if (snap.empty) { cont.innerHTML = '<p class="empty" style="padding:1.5rem">No hay bloqueos.</p>'; return; }
+  let html = `<table class="data-table">
+    <thead><tr><th>Profesional</th><th>Desde</th><th>Hasta</th><th>Motivo</th><th></th></tr></thead><tbody>`;
+  snap.forEach(doc => {
+    const b = doc.data();
+    const profNombre = b.profesional_id ? (profesionales[b.profesional_id]?.nombre || b.profesional_id) : 'Todo el negocio';
+    const desde = b.fecha_inicio?.toDate ? b.fecha_inicio.toDate().toLocaleString('es-AR') : b.fecha_inicio;
+    const hasta = b.fecha_fin?.toDate    ? b.fecha_fin.toDate().toLocaleString('es-AR')    : b.fecha_fin;
+    html += `<tr>
+      <td>${profNombre}</td>
+      <td>${desde}</td>
+      <td>${hasta}</td>
+      <td>${b.motivo || '—'}</td>
+      <td><button class="btn-sm btn-danger" onclick="eliminarBloqueo('${doc.id}')">Eliminar</button></td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  cont.innerHTML = html;
+}
+
+document.getElementById('btn-nuevo-bloqueo').addEventListener('click', () => {
+  editingBlqId = null;
+  document.getElementById('modal-blq-title').textContent = 'Nuevo bloqueo';
+  document.getElementById('blq-prof').value    = '';
+  document.getElementById('blq-desde').value   = '';
+  document.getElementById('blq-hasta').value   = '';
+  document.getElementById('blq-motivo').value  = '';
+  ocultarError('blq-error');
+  abrirModal('modal-bloqueo');
+});
+
+document.getElementById('btn-guardar-bloqueo').addEventListener('click', async () => {
+  const desde = document.getElementById('blq-desde').value;
+  const hasta = document.getElementById('blq-hasta').value;
+  if (!desde || !hasta) { mostrarError('blq-error', 'Completá fechas de inicio y fin.'); return; }
+  if (desde >= hasta)   { mostrarError('blq-error', 'La fecha de inicio debe ser antes que la de fin.'); return; }
+  const data = {
+    negocio_id:     negocioId,
+    profesional_id: document.getElementById('blq-prof').value || null,
+    fecha_inicio:   firebase.firestore.Timestamp.fromDate(new Date(desde)),
+    fecha_fin:      firebase.firestore.Timestamp.fromDate(new Date(hasta)),
+    motivo:         document.getElementById('blq-motivo').value.trim(),
+    creado_en:      firebase.firestore.FieldValue.serverTimestamp(),
+  };
+  await db.collection('negocios').doc(negocioId).collection('bloqueos').add(data);
+  cerrarModal('modal-bloqueo');
+  cargarBloqueos();
+});
+
+window.eliminarBloqueo = async (id) => {
+  if (!confirm('¿Eliminar este bloqueo?')) return;
+  await db.collection('negocios').doc(negocioId).collection('bloqueos').doc(id).delete();
+  cargarBloqueos();
+};
+
+// ════════════════════════════════════════════════════════════
+//  CONFIGURACIÓN
+// ════════════════════════════════════════════════════════════
+async function cargarConfiguracion(negData) {
+  // Datos del negocio
+  document.getElementById('cfg-nombre').value      = negData.nombre || '';
+  document.getElementById('cfg-descripcion').value = negData.descripcion || '';
+  document.getElementById('cfg-telefono').value    = negData.telefono || '';
+  document.getElementById('cfg-email').value       = negData.email || '';
+  document.getElementById('cfg-direccion').value   = negData.direccion || '';
+  document.getElementById('cfg-color').value       = negData.color_primario || '#3B5BDB';
+  document.getElementById('cfg-logo-url').value    = negData.logo || '';
+  if (negData.logo) {
+    document.getElementById('cfg-logo-preview').innerHTML = `<img src="${negData.logo}" style="max-height:60px;border-radius:8px;margin-bottom:.4rem">`;
+  }
+  // Configuración de reservas
+  const cfgSnap = await db.collection('negocios').doc(negocioId).collection('configuracion').doc('config').get();
+  if (cfgSnap.exists) {
+    const c = cfgSnap.data();
+    document.getElementById('cfg-ant-min').value          = c.anticipacion_min ?? 1;
+    document.getElementById('cfg-ant-max').value          = c.anticipacion_max_dias ?? 90;
+    document.getElementById('cfg-intervalo').value        = c.intervalo_min ?? 30;
+    document.getElementById('cfg-cancelar').value         = c.permitir_cancelar ? '1' : '0';
+    document.getElementById('cfg-hs-cancelar').value      = c.horas_cancelar ?? 24;
+    document.getElementById('cfg-msg-confirmacion').value = c.mensaje_confirmacion || '';
+    document.getElementById('cfg-msg-cancelacion').value  = c.mensaje_cancelacion || '';
+  }
+}
+
+document.getElementById('btn-cfg-logo').addEventListener('click', () =>
+  uploadCloudinary('cfg-logo-url', 'cfg-logo-preview', 'reservas/logos', true));
+
+document.getElementById('btn-guardar-negocio-cfg').addEventListener('click', async () => {
+  await db.collection('negocios').doc(negocioId).update({
+    nombre:         document.getElementById('cfg-nombre').value.trim(),
+    descripcion:    document.getElementById('cfg-descripcion').value.trim(),
+    telefono:       document.getElementById('cfg-telefono').value.trim(),
+    email:          document.getElementById('cfg-email').value.trim(),
+    direccion:      document.getElementById('cfg-direccion').value.trim(),
+    color_primario: document.getElementById('cfg-color').value,
+    logo:           document.getElementById('cfg-logo-url').value || null,
+  });
+  document.getElementById('sb-negocio-nombre').textContent = document.getElementById('cfg-nombre').value.trim();
+  mostrarOk('✅ Datos del negocio guardados.');
+});
+
+document.getElementById('btn-guardar-config').addEventListener('click', async () => {
+  await db.collection('negocios').doc(negocioId).collection('configuracion').doc('config').set({
+    anticipacion_min:      parseInt(document.getElementById('cfg-ant-min').value) || 1,
+    anticipacion_max_dias: parseInt(document.getElementById('cfg-ant-max').value) || 90,
+    intervalo_min:         parseInt(document.getElementById('cfg-intervalo').value) || 30,
+    permitir_cancelar:     document.getElementById('cfg-cancelar').value === '1',
+    horas_cancelar:        parseInt(document.getElementById('cfg-hs-cancelar').value) || 24,
+    mensaje_confirmacion:  document.getElementById('cfg-msg-confirmacion').value.trim(),
+    mensaje_cancelacion:   document.getElementById('cfg-msg-cancelacion').value.trim(),
+  }, { merge: true });
+  mostrarOk('✅ Configuración de reservas guardada.');
+});
+
+function mostrarOk(msg) {
+  const el = document.getElementById('cfg-ok');
+  el.textContent = msg; el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 3000);
+}
+
+// ════════════════════════════════════════════════════════════
+//  CLOUDINARY HELPER
+// ════════════════════════════════════════════════════════════
+function uploadCloudinary(inputId, previewId, folder, circle) {
+  const widget = cloudinary.createUploadWidget({
+    cloudName:    CLOUDINARY_CLOUD,
+    uploadPreset: CLOUDINARY_PRESET,
+    folder,
+    sources:      ['local','camera'],
+    cropping:     true,
+    croppingAspectRatio: circle ? 1 : null,
+    maxFileSize:  3000000,
+  }, (err, result) => {
+    if (result?.event === 'success') {
+      const url = result.info.secure_url;
+      document.getElementById(inputId).value = url;
+      const prev = document.getElementById(previewId);
+      prev.innerHTML = `<img src="${url}" style="max-height:70px;border-radius:${circle?'50%':'6px'};margin-bottom:.3rem">`;
+    }
+  });
+  widget.open();
+}
+
+// ════════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════════
+function abrirModal(id)  { document.getElementById(id).classList.remove('hidden'); }
+function cerrarModal(id) { document.getElementById(id).classList.add('hidden'); }
+function limpiarForm(ids) { ids.forEach(id => document.getElementById(id).value = ''); }
+function mostrarError(id, msg) { const e = document.getElementById(id); e.textContent = msg; e.classList.remove('hidden'); }
+function ocultarError(id) { document.getElementById(id).classList.add('hidden'); }
+
+  </script>
+</body>
+</html>
