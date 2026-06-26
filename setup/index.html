@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Setup inicial — ReservasApp</title>
+  <link rel="stylesheet" href="../assets/css/main.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:#1a1f36; }
+    .setup-card { background:#fff; border-radius:16px; padding:2rem; max-width:420px; width:100%; }
+    h2 { margin-bottom:1.2rem; color:#3B5BDB; }
+    .step { background:#f4f6fb; border-radius:8px; padding:1rem; margin-bottom:1rem; font-size:.9rem; }
+    .step strong { display:block; margin-bottom:.3rem; }
+  </style>
+</head>
+<body>
+  <div class="setup-card">
+    <h2>⚙️ Setup inicial</h2>
+
+    <div class="step">
+      <strong>Paso 1 — Completá firebase-config.js</strong>
+      Abrí <code>assets/js/firebase-config.js</code> y ponés los datos de tu proyecto Firebase.
+    </div>
+
+    <div class="step">
+      <strong>Paso 2 — Creá tu cuenta superadmin</strong>
+      Ingresá el email y contraseña que querés usar para el superadmin. Esto crea la cuenta en Firebase Auth y el documento en Firestore.
+    </div>
+
+    <div class="form-group">
+      <label>Nombre</label>
+      <input type="text" id="s-nombre" placeholder="Super Administrador">
+    </div>
+    <div class="form-group">
+      <label>Email</label>
+      <input type="email" id="s-email" placeholder="admin@tuapp.com">
+    </div>
+    <div class="form-group">
+      <label>Contraseña</label>
+      <input type="password" id="s-pass" placeholder="Mínimo 6 caracteres">
+    </div>
+
+    <div id="setup-error" class="msg-error hidden" style="margin-bottom:.8rem"></div>
+    <div id="setup-ok"    class="msg-ok hidden"    style="margin-bottom:.8rem"></div>
+
+    <button class="btn-primary full" id="btn-setup">Crear superadmin</button>
+
+    <p style="margin-top:1rem; font-size:.8rem; color:#6b7280; text-align:center">
+      ⚠️ Eliminá o protegé este archivo después de usarlo.
+    </p>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script>
+    document.getElementById('btn-setup').addEventListener('click', async () => {
+      const nombre = document.getElementById('s-nombre').value.trim();
+      const email  = document.getElementById('s-email').value.trim();
+      const pass   = document.getElementById('s-pass').value;
+
+      document.getElementById('setup-error').classList.add('hidden');
+      document.getElementById('setup-ok').classList.add('hidden');
+
+      if (!nombre || !email || !pass) {
+        showErr('Completá todos los campos.'); return;
+      }
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, pass);
+        await db.collection('usuarios').doc(cred.user.uid).set({
+          nombre, email,
+          rol: 'superadmin',
+          negocio_id: null,
+          activo: true,
+          creado_en: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        const ok = document.getElementById('setup-ok');
+        ok.innerHTML = `✅ Superadmin creado. UID: <strong>${cred.user.uid}</strong><br>
+          Copiá ese UID a <code>SUPERADMIN_UID</code> en <code>firebase-config.js</code><br>
+          Luego andá a <a href="../index.html">iniciar sesión</a>.`;
+        ok.classList.remove('hidden');
+        document.getElementById('btn-setup').disabled = true;
+      } catch(e) {
+        showErr(e.message);
+      }
+    });
+    function showErr(msg) {
+      const el = document.getElementById('setup-error');
+      el.textContent = msg; el.classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>
