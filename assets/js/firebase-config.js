@@ -16,7 +16,7 @@ const CLOUDINARY_CLOUD  = "mbjufe1a";   // ej: ddfukywf8
 const CLOUDINARY_PRESET = "reservas";         // upload preset sin firmar
 
 // UID del superadmin (lo copiás de Firebase Auth después de crear la cuenta)
-const SUPERADMIN_UID = "TU_UID_SUPERADMIN";
+const SUPERADMIN_UID = "Zrd9dbBwwMd7f3YHykSxOYPH0X93";
 
 // ============================================================
 firebase.initializeApp(FIREBASE_CONFIG);
