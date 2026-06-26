@@ -2,7 +2,7 @@
 //  REEMPLAZÁ ESTOS VALORES CON LOS DE TU PROYECTO FIREBASE
 // ============================================================
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBYlofFf0610YrnFcK1j3jfckDwzg_Twjo",
+  apiKey: "AIzaSyBYlofFf061OYrnFcK1j3jfckDwzg_Twjo",
   authDomain: "reservassystem.firebaseapp.com",
   projectId: "reservassystem",
   storageBucket: "reservassystem.firebasestorage.app",
