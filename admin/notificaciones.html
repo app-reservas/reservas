@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notificaciones — ReservaSystem</title>
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js"></script>
+
+  <script>
+    let usuarioActual = null;
+    let NOTIFS = [];
+    let NEGOCIOS_MAP = {};
+
+    const ICONOS  = {
+      reserva_nueva:     'ti-calendar-check',
+      reserva_cancelada: 'ti-calendar-off',
+      recordatorio:      'ti-bell',
+      alerta:            'ti-alert-triangle',
+      sistema:           'ti-info-circle',
+    };
+    const COLORES = {
+      reserva_nueva:     '#69db7c',
+      reserva_cancelada: '#ff8787',
+      recordatorio:      '#ffd43b',
+      alerta:            '#ff8787',
+      sistema:           '#74c0fc',
+    };
+
+    auth.onAuthStateChanged(async user => {
+      if (!user) { window.location.href = '../index.html'; return; }
+      const snap = await db.collection('usuarios').doc(user.uid).get();
+      if (!snap.exists || !snap.data().activo) { auth.signOut(); window.location.href = '../index.html'; return; }
+      usuarioActual = { uid: user.uid, ...snap.data() };
+
+      renderLayoutAdmin({
+        titulo:        'Notificaciones',
+        subtitulo:     'Centro de alertas y novedades del sistema',
+        nombreUsuario: usuarioActual.nombre,
+        rolLabel:      usuarioActual.rol === 'superadmin' ? 'Super Administrador' : 'Gerente',
+      });
+
+      document.getElementById('page-content').innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+      // Cargar negocios para mostrar nombres
+      const negSnap = await db.collection('negocios').get();
+      negSnap.forEach(d => { NEGOCIOS_MAP[d.id] = d.data(); });
+
+      // Cargar notificaciones
+      let query = db.collection('notificaciones').orderBy('creado_en', 'desc').limit(100);
+      if (usuarioActual.rol === 'gerente' && usuarioActual.negocio_id) {
+        query = db.collection('notificaciones')
+          .where('negocio_id', '==', usuarioActual.negocio_id)
+          .orderBy('creado_en', 'desc').limit(100);
+      }
+      const notifSnap = await query.get();
+      NOTIFS = [];
+      notifSnap.forEach(d => NOTIFS.push({ id: d.id, ...d.data() }));
+
+      // Marcar todas como leídas
+      const batch = db.batch();
+      notifSnap.forEach(d => { if (!d.data().leida) batch.update(d.ref, { leida: true }); });
+      await batch.commit().catch(() => {});
+
+      renderPagina();
+    });
+
+    function renderPagina() {
+      const hoy       = new Date().toISOString().slice(0, 10);
+      const total     = NOTIFS.length;
+      const hoyCnt    = NOTIFS.filter(n => (n.creado_en||'').slice(0,10) === hoy).length;
+      const negocios  = new Set(NOTIFS.map(n => n.negocio_id).filter(Boolean)).size;
+
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `
+      <!-- KPIs -->
+      <div class="kpi-grid mb-6" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-card">
+          <div class="kpi-icon indigo"><i class="ti ti-bell"></i></div>
+          <div><div class="kpi-value">${total}</div><div class="kpi-label">Total notificaciones</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon amber"><i class="ti ti-calendar-today"></i></div>
+          <div><div class="kpi-value">${hoyCnt}</div><div class="kpi-label">Hoy</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green"><i class="ti ti-building-store"></i></div>
+          <div><div class="kpi-value">${negocios}</div><div class="kpi-label">Negocios activos</div></div>
+        </div>
+      </div>
+
+      <!-- Lista -->
+      <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div class="card-title"><i class="ti ti-bell"></i> Todas las notificaciones</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="filtro-tipo" class="form-control" style="width:170px" onchange="filtrar()">
+              <option value="">Todos los tipos</option>
+              <option value="reserva_nueva">Reserva nueva</option>
+              <option value="reserva_cancelada">Cancelada</option>
+              <option value="recordatorio">Recordatorio</option>
+              <option value="alerta">Alerta</option>
+              <option value="sistema">Sistema</option>
+            </select>
+            <button onclick="limpiarTodas()" class="btn btn-ghost btn-sm"><i class="ti ti-trash"></i> Limpiar todas</button>
+          </div>
+        </div>
+
+        <div id="lista-notifs">
+          ${renderLista(NOTIFS)}
+        </div>
+      </div>`;
+    }
+
+    function renderLista(lista) {
+      if (!lista.length) return `
+        <div style="text-align:center;padding:60px;color:var(--text-muted)">
+          <i class="ti ti-bell-off" style="font-size:48px;display:block;margin-bottom:14px;opacity:0.3"></i>
+          <div style="font-size:16px;font-weight:600">Sin notificaciones</div>
+          <div style="font-size:13px;margin-top:4px">El sistema generará alertas automáticamente con la actividad.</div>
+        </div>`;
+
+      return lista.map(n => {
+        const ico      = ICONOS[n.tipo]  || 'ti-info-circle';
+        const col      = COLORES[n.tipo] || '#74c0fc';
+        const neg      = NEGOCIOS_MAP[n.negocio_id];
+        const negColor = neg?.color_primario || '#3B5BDB';
+        const negNombre= neg?.nombre || '';
+        const fecha    = n.creado_en
+          ? new Date(n.creado_en).toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' })
+          : '';
+        return `
+        <div class="notif-item" data-tipo="${n.tipo||''}" style="display:flex;align-items:flex-start;gap:14px;padding:16px 0;border-bottom:1px solid var(--border)">
+          <div style="width:44px;height:44px;border-radius:50%;background:${col}22;display:flex;align-items:center;justify-content:center;font-size:20px;color:${col};flex-shrink:0">
+            <i class="ti ${ico}"></i>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px;flex-wrap:wrap">
+              <div style="font-weight:600;color:var(--text-primary)">${limpiar(n.titulo||'Sin título')}</div>
+              <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+                ${negNombre ? `<span style="font-size:11px;padding:2px 8px;border-radius:20px;background:${negColor}22;color:${negColor};border:1px solid ${negColor}44">${limpiar(negNombre)}</span>` : ''}
+                <span style="font-size:11px;color:var(--text-muted)">${fecha}</span>
+              </div>
+            </div>
+            <div style="font-size:13px;color:var(--text-secondary)">${limpiar(n.mensaje||'')}</div>
+          </div>
+          ${n.enlace ? `<a href="${limpiar(n.enlace)}" class="btn btn-ghost btn-sm" style="flex-shrink:0">Ver</a>` : ''}
+          <button onclick="eliminarNotif('${n.id}')" class="btn btn-ghost btn-icon btn-sm" title="Eliminar" style="flex-shrink:0;color:var(--text-muted)"><i class="ti ti-x"></i></button>
+        </div>`;
+      }).join('');
+    }
+
+    function filtrar() {
+      const tipo = document.getElementById('filtro-tipo').value;
+      document.querySelectorAll('.notif-item').forEach(el => {
+        el.style.display = (!tipo || el.dataset.tipo === tipo) ? '' : 'none';
+      });
+    }
+
+    async function eliminarNotif(id) {
+      try {
+        await db.collection('notificaciones').doc(id).delete();
+        NOTIFS = NOTIFS.filter(n => n.id !== id);
+        document.getElementById('lista-notifs').innerHTML = renderLista(
+          document.getElementById('filtro-tipo').value
+            ? NOTIFS.filter(n => n.tipo === document.getElementById('filtro-tipo').value)
+            : NOTIFS
+        );
+        Toast.success('Notificación eliminada.');
+      } catch(e) { Toast.error('Error al eliminar.'); }
+    }
+
+    async function limpiarTodas() {
+      confirmar('¿Eliminar todas las notificaciones del sistema?', async () => {
+        try {
+          const snap = await db.collection('notificaciones').get();
+          const batch = db.batch();
+          snap.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+          NOTIFS = [];
+          document.getElementById('lista-notifs').innerHTML = renderLista([]);
+          Toast.success('Notificaciones eliminadas.');
+        } catch(e) { Toast.error('Error al limpiar: ' + e.message); }
+      });
+    }
+  </script>
+</body>
+</html>
