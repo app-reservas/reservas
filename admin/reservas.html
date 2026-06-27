@@ -693,35 +693,39 @@ async function cargarSlots(negId, srvId, profId, fecha, selHora=null, excluirId=
 
   // Día de semana (0=Lunes ... 6=Domingo)
   const d = new Date(fecha + 'T12:00:00');
-  const diaSemana = (d.getDay() + 6) % 7; // JS: 0=domingo, convertimos a 0=lunes
+  const diaSemana = d.getDay(); // 0=Domingo, igual que horarios.html
 
   // Buscar horarios del profesional (o de cualquier prof del negocio que haga el servicio)
   let horariosSnap;
   if (profId) {
-    horariosSnap = await db.collection('horarios')
+    // Traer horarios del prof para ese día (sin filtro activo en Firestore, filtrar en cliente)
+    const snap1 = await db.collection('horarios')
       .where('profesional_id','==',profId)
-      .where('dia_semana','==',diaSemana)
-      .where('activo','==',true).get();
+      .where('dia_semana','==',diaSemana).get();
+    // Filtrar activos en cliente
+    let docs1 = []; snap1.forEach(d => { if (d.data().activo) docs1.push(d); });
+    horariosSnap = { forEach: cb => docs1.forEach(cb), empty: docs1.length===0 };
   } else {
     // Buscar profesionales del negocio que hagan el servicio
     const profsValidos = Object.values(PROF_MAP).filter(p =>
       p.negocio_id === negId && Array.isArray(p.servicios_ids) && p.servicios_ids.includes(srvId)
     );
-    if (!profsValidos.length) {
+    // Si no hay profs con servicios_ids cargados, usar todos del negocio
+    const profsPool = profsValidos.length > 0
+      ? profsValidos
+      : Object.values(PROF_MAP).filter(p => p.negocio_id === negId);
+    if (!profsPool.length) {
       sel.innerHTML = '<option value="">Sin profesionales para ese servicio</option>';
       ind.textContent = 'Sin profesionales disponibles para este servicio.';
       ind.style.cssText = 'display:block;padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:10px;background:rgba(224,49,49,0.1);color:#ff8787;border:1px solid rgba(224,49,49,0.2)';
       return;
     }
-    // Buscar horarios de cualquiera de los profs válidos para ese día
-    const profIds = profsValidos.map(p => p.id);
-    // Firestore no hace IN fácilmente con múltiples docs, hacemos en paralelo
+    const profIds = profsPool.map(p => p.id);
     const snaps = await Promise.all(profIds.map(pid =>
-      db.collection('horarios').where('profesional_id','==',pid).where('dia_semana','==',diaSemana).where('activo','==',true).get()
+      db.collection('horarios').where('profesional_id','==',pid).where('dia_semana','==',diaSemana).get()
     ));
     let docs = [];
-    snaps.forEach(s => s.forEach(d => docs.push(d)));
-    // Simular snapshot
+    snaps.forEach(s => s.forEach(d => { if (d.data().activo) docs.push(d); }));
     horariosSnap = { forEach: cb => docs.forEach(cb), empty: docs.length===0 };
   }
 
