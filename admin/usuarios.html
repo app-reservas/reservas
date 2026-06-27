@@ -277,12 +277,15 @@
               </div>
 
               <div class="grid-2">
-                <div class="form-group">
+                <div class="form-group" id="campo-rol-wrap">
                   <label class="form-label">Rol *</label>
                   <select id="usr-rol" class="form-control" onchange="toggleNegocioField(this.value)">
                     <option value="gerente">Gerente</option>
                     <option value="superadmin">Super Admin</option>
                   </select>
+                  <div id="rol-hint-nuevo" style="font-size:11px;color:var(--text-muted);margin-top:4px;display:none">
+                    Las cuentas nuevas se crean como Gerente. Para Super Admin, editá el rol después de creada.
+                  </div>
                 </div>
                 <div class="form-group" id="campo-negocio">
                   <label class="form-label">Negocio asignado *</label>
@@ -323,6 +326,9 @@
                 <input type="checkbox" id="usr-activo" checked
                        style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
                 <label for="usr-activo" style="cursor:pointer;color:var(--text-secondary)">Usuario activo</label>
+              </div>
+              <div id="activo-hint-nuevo" style="font-size:12px;color:var(--text-muted);margin-top:-10px;margin-bottom:12px;display:none">
+                Por seguridad, toda cuenta nueva nace <strong>inactiva</strong>. Vas a poder activarla con el botón <i class="ti ti-check"></i> en la tabla, una vez creada.
               </div>
 
               <div class="divider"></div>
@@ -382,7 +388,15 @@
       document.getElementById('modal-usr-titulo').textContent = 'Nuevo usuario';
       document.getElementById('form-usuario').reset();
       document.getElementById('usr-id').value = '';
-      document.getElementById('usr-activo').checked = true;
+      // Por seguridad, toda cuenta nueva nace inactiva y como gerente
+      // (las reglas de Firestore lo exigen así). Se aprueba y se puede
+      // ascender a Super Admin después, editando.
+      document.getElementById('usr-activo').checked = false;
+      document.getElementById('usr-activo').disabled = true;
+      document.getElementById('activo-hint-nuevo').style.display = 'block';
+      document.getElementById('usr-rol').value = 'gerente';
+      document.getElementById('usr-rol').disabled = true;
+      document.getElementById('rol-hint-nuevo').style.display = 'block';
       document.getElementById('lbl-pass').textContent = 'Contraseña *';
       document.getElementById('pass-hint').style.display = 'none';
       document.getElementById('campo-password-wrap').style.display = '';
@@ -406,9 +420,13 @@
       document.getElementById('usr-email').value   = u.email || '';
       document.getElementById('usr-email').disabled = true; // el email es el login de Firebase Auth, no se cambia acá
       document.getElementById('usr-rol').value     = u.rol || 'gerente';
+      document.getElementById('usr-rol').disabled  = false;
+      document.getElementById('rol-hint-nuevo').style.display = 'none';
       document.getElementById('usr-negocio').value = u.negocio_id || '';
       document.getElementById('usr-tel').value     = u.telefono || '';
       document.getElementById('usr-activo').checked = u.activo !== false;
+      document.getElementById('usr-activo').disabled = false;
+      document.getElementById('activo-hint-nuevo').style.display = 'none';
 
       // En edición no se toca la contraseña desde aquí (limitación de Firebase Auth cliente)
       document.getElementById('campo-password-wrap').style.display = 'none';
@@ -469,7 +487,11 @@
           try {
             const cred = await authSecundaria.createUserWithEmailAndPassword(email, pass);
             await db.collection('usuarios').doc(cred.user.uid).set({
-              nombre, email, rol, negocio_id: negocioId, telefono: telefono || null, activo,
+              nombre, email,
+              rol: 'gerente',       // las reglas de Firestore exigen esto en la creación
+              activo: false,        // nace inactivo siempre; se aprueba después con el botón ✓
+              negocio_id: negocioId,
+              telefono: telefono || null,
               creado_en: firebase.firestore.FieldValue.serverTimestamp(),
             });
             await authSecundaria.signOut();
