@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuración del sistema — ReservaSystem</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="../assets/css/dark.css">
+</head>
+<body>
+
+<div id="app-root"></div>
+
+<!-- MODAL CAMBIAR CONTRASEÑA -->
+<div class="modal-overlay" id="modal-pass">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-lock"></i> Cambiar contraseña</div>
+      <button class="modal-close" onclick="Modal.close('modal-pass')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Contraseña actual *</label>
+      <input type="password" id="pass-actual" class="form-control" placeholder="••••••••">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nueva contraseña *</label>
+      <input type="password" id="pass-nueva" class="form-control" placeholder="Mínimo 6 caracteres">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Repetir nueva contraseña *</label>
+      <input type="password" id="pass-repetir" class="form-control" placeholder="Repetí la contraseña">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-pass')">Cancelar</button>
+      <button class="btn btn-primary" onclick="cambiarPassword()"><i class="ti ti-lock-check"></i> Cambiar contraseña</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL APARIENCIA -->
+<div class="modal-overlay" id="modal-apariencia">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-palette"></i> Apariencia del sistema</div>
+      <button class="modal-close" onclick="Modal.close('modal-apariencia')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Logo del sistema</label>
+      <div id="logo-preview-wrap" style="display:none;align-items:center;gap:10px;margin-bottom:10px">
+        <img id="logo-preview-img" src="" style="max-height:52px;max-width:120px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:#0d0e14;padding:4px;object-fit:contain">
+        <button type="button" class="btn btn-ghost btn-sm" style="color:#ff8787;padding:4px 8px" onclick="borrarLogo()">
+          <i class="ti ti-x"></i> Quitar
+        </button>
+      </div>
+      <label for="inp-logo" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px;border:2px dashed rgba(255,255,255,0.15);border-radius:8px">
+        <i class="ti ti-upload" style="color:#74c0fc;font-size:20px"></i>
+        <span style="font-size:12px;color:var(--text-muted)">Subir imagen (PNG, JPG, SVG, WebP)</span>
+      </label>
+      <input type="file" id="inp-logo" accept="image/*" style="display:none" onchange="previewLogo(this)">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Color de acento <span style="font-size:11px;color:var(--text-muted)">(botones, links, badges)</span></label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="color" id="inp-color-acento" value="#4c6ef5"
+               style="width:44px;height:36px;border:none;background:none;cursor:pointer;padding:0"
+               oninput="sincColorPicker('acento')">
+        <input type="text" id="txt-color-acento" class="form-control" style="width:110px;font-family:monospace"
+               value="#4c6ef5" oninput="sincColorTexto('acento')" placeholder="#4c6ef5">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="resetColor('acento','#4c6ef5')">Reset</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Fondo del menú lateral</label>
+      <div style="display:flex;align-items:center;gap:10px">
+        <input type="color" id="inp-color-sidebar" value="#0d0e14"
+               style="width:44px;height:36px;border:none;background:none;cursor:pointer;padding:0"
+               oninput="sincColorPicker('sidebar')">
+        <input type="text" id="txt-color-sidebar" class="form-control" style="width:110px;font-family:monospace"
+               value="#0d0e14" oninput="sincColorTexto('sidebar')" placeholder="#0d0e14">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="resetColor('sidebar','#0d0e14')">Reset</button>
+      </div>
+    </div>
+    <!-- Vista previa mini -->
+    <div style="display:flex;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);margin-bottom:14px;height:64px">
+      <div id="prev-sidebar-bg" style="width:54px;background:#0d0e14;display:flex;align-items:center;justify-content:center">
+        <div id="prev-accent-dot" style="width:20px;height:20px;border-radius:50%;background:#4c6ef5"></div>
+      </div>
+      <div style="flex:1;background:var(--bg-base);display:flex;align-items:center;padding:0 14px;gap:8px">
+        <div style="display:flex;flex-direction:column;gap:5px">
+          <div id="prev-bar1" style="height:8px;width:80px;border-radius:4px;background:#4c6ef540"></div>
+          <div style="height:6px;width:55px;border-radius:4px;background:rgba(255,255,255,0.08)"></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+      <button class="btn btn-ghost btn-sm" style="color:#ff8787" onclick="resetearApariencia()">
+        <i class="ti ti-refresh"></i> Restaurar original
+      </button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" onclick="Modal.close('modal-apariencia')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarApariencia()"><i class="ti ti-device-floppy"></i> Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL FIRMA DEL DEV -->
+<div class="modal-overlay" id="modal-dev">
+  <div class="modal" style="max-width:440px">
+    <div class="modal-header">
+      <div class="modal-title"><i class="ti ti-code"></i> Firma del desarrollador</div>
+      <button class="modal-close" onclick="Modal.close('modal-dev')"><i class="ti ti-x"></i></button>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+      Aparece al pie de cada pantalla del sistema.
+    </p>
+    <div class="form-group">
+      <label class="form-label">Nombre / Empresa</label>
+      <input type="text" id="dev-nombre" class="form-control" placeholder="Ej: Tu Nombre o Empresa" oninput="actualizarPrevDev()">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Celular / WhatsApp</label>
+      <input type="text" id="dev-tel" class="form-control" placeholder="Ej: +54 9 351 123-4567" oninput="actualizarPrevDev()">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">El número se convierte en link de WhatsApp automáticamente</div>
+    </div>
+    <div style="padding:10px 12px;background:rgba(116,192,252,0.08);border:1px solid rgba(116,192,252,0.2);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text-secondary)">
+      <i class="ti ti-eye" style="color:#74c0fc"></i> Vista previa:&nbsp;
+      <span style="font-size:11px;color:var(--text-muted)">Desarrollado por </span>
+      <span style="font-weight:600;color:var(--text-primary)" id="prev-dev-nombre">—</span>
+      <span id="prev-dev-tel-wrap" style="display:none">
+        &nbsp;·&nbsp;<i class="ti ti-brand-whatsapp" style="color:#69db7c;vertical-align:-2px"></i>
+        <span id="prev-dev-tel"></span>
+      </span>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="Modal.close('modal-dev')">Cancelar</button>
+      <button class="btn btn-primary" onclick="guardarFirmaDev()"><i class="ti ti-device-floppy"></i> Guardar firma</button>
+    </div>
+  </div>
+</div>
+
+<script src="../assets/js/firebase-config.js"></script>
+<script src="../assets/js/app.js"></script>
+<script src="../assets/js/sidebar.js"></script>
+<script src="../assets/js/helpers.js"></script>
+<script>
+let usuarioActual = null;
+let configGlobal  = {};
+
+auth.onAuthStateChanged(async user => {
+  if (!user) { window.location.href = '../index.html'; return; }
+  const snap = await db.collection('usuarios').doc(user.uid).get();
+  if (!snap.exists || !snap.data().activo || snap.data().rol !== 'superadmin') {
+    auth.signOut(); window.location.href = '../index.html'; return;
+  }
+  usuarioActual = { uid: user.uid, ...snap.data() };
+
+  renderLayoutAdmin({
+    titulo:        'Configuración del sistema',
+    subtitulo:     'Ajustes globales de ReservaSystem',
+    nombreUsuario: usuarioActual.nombre,
+    rolLabel:      'Super Administrador',
+  });
+
+  document.getElementById('page-content').innerHTML =
+    `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+  await cargarConfig();
+  await renderPagina();
+});
+
+// ── Cargar configuración global desde Firestore ──────────
+async function cargarConfig() {
+  try {
+    const snap = await db.collection('configuracion').doc('global').get();
+    configGlobal = snap.exists ? snap.data() : {};
+  } catch(e) {
+    configGlobal = {};
+  }
+}
+
+// ── Obtener estadísticas ─────────────────────────────────
+async function obtenerStats() {
+  try {
+    const [usSnap, negSnap, resSnap, srvSnap, profSnap] = await Promise.all([
+      db.collection('usuarios').get(),
+      db.collection('negocios').get(),
+      db.collection('reservas').get(),
+      db.collection('servicios').get(),
+      db.collection('profesionales').get(),
+    ]);
+    return {
+      usuarios:      usSnap.size,
+      negocios:      negSnap.size,
+      reservas:      resSnap.size,
+      servicios:     srvSnap.size,
+      profesionales: profSnap.size,
+    };
+  } catch(e) {
+    return { usuarios:0, negocios:0, reservas:0, servicios:0, profesionales:0 };
+  }
+}
+
+// ── Render principal ─────────────────────────────────────
+async function renderPagina() {
+  const stats = await obtenerStats();
+  const devNombre = configGlobal.dev_nombre || '';
+  const devTel    = configGlobal.dev_tel    || '';
+  const logoUrl   = configGlobal.logo_url   || '';
+
+  const html = `
+    <!-- KPIs del sistema -->
+    <div class="kpi-grid mb-6" style="grid-template-columns:repeat(5,1fr)">
+      <div class="kpi-card">
+        <div class="kpi-icon indigo"><i class="ti ti-users"></i></div>
+        <div><div class="kpi-value">${stats.usuarios}</div><div class="kpi-label">Usuarios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon green"><i class="ti ti-building-store"></i></div>
+        <div><div class="kpi-value">${stats.negocios}</div><div class="kpi-label">Negocios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon cyan"><i class="ti ti-calendar-check"></i></div>
+        <div><div class="kpi-value">${stats.reservas}</div><div class="kpi-label">Reservas</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon amber"><i class="ti ti-tag"></i></div>
+        <div><div class="kpi-value">${stats.servicios}</div><div class="kpi-label">Servicios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon pink"><i class="ti ti-user-star"></i></div>
+        <div><div class="kpi-value">${stats.profesionales}</div><div class="kpi-label">Profesionales</div></div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:flex-start">
+
+      <!-- COLUMNA PRINCIPAL -->
+      <div>
+
+        <!-- MI PERFIL -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-user-circle"></i> Mi perfil</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;padding:16px;background:var(--bg-surface);border-radius:10px;border:1px solid var(--border)">
+            <div style="width:60px;height:60px;border-radius:50%;background:var(--indigo-500)22;border:2px solid var(--indigo-500)44;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:var(--indigo-300)">
+              ${(usuarioActual.nombre||'S').charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1">
+              <div style="font-size:18px;font-weight:700">${usuarioActual.nombre||''}</div>
+              <div style="font-size:13px;color:var(--text-muted)">${usuarioActual.email||''}</div>
+              <div style="margin-top:4px">
+                <span class="badge-estado" style="background:var(--indigo-500)22;color:var(--indigo-300);border:1px solid var(--indigo-500)44">
+                  <i class="ti ti-shield-check"></i> Super Administrador
+                </span>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="Modal.open('modal-pass')">
+              <i class="ti ti-lock"></i> Cambiar contraseña
+            </button>
+          </div>
+        </div>
+
+        <!-- CONFIGURACIÓN GENERAL -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-settings"></i> Configuración general</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del sistema</label>
+            <input type="text" id="cfg-nombre" class="form-control"
+                   value="${configGlobal.sistema_nombre || 'ReservaSystem'}"
+                   placeholder="Ej: MiSistema de Turnos">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Aparece en el título del navegador y en el sidebar</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Zona horaria</label>
+            <select id="cfg-timezone" class="form-control">
+              <option value="America/Argentina/Buenos_Aires" ${(configGlobal.timezone||'America/Argentina/Buenos_Aires')==='America/Argentina/Buenos_Aires'?'selected':''}>Argentina (Buenos Aires)</option>
+              <option value="America/Argentina/Cordoba"      ${configGlobal.timezone==='America/Argentina/Cordoba'?'selected':''}>Argentina (Córdoba)</option>
+              <option value="America/Santiago"               ${configGlobal.timezone==='America/Santiago'?'selected':''}>Chile (Santiago)</option>
+              <option value="America/Lima"                   ${configGlobal.timezone==='America/Lima'?'selected':''}>Perú (Lima)</option>
+              <option value="America/Bogota"                 ${configGlobal.timezone==='America/Bogota'?'selected':''}>Colombia (Bogotá)</option>
+              <option value="America/Montevideo"             ${configGlobal.timezone==='America/Montevideo'?'selected':''}>Uruguay (Montevideo)</option>
+              <option value="America/Asuncion"               ${configGlobal.timezone==='America/Asuncion'?'selected':''}>Paraguay (Asunción)</option>
+              <option value="America/La_Paz"                 ${configGlobal.timezone==='America/La_Paz'?'selected':''}>Bolivia (La Paz)</option>
+              <option value="America/Mexico_City"            ${configGlobal.timezone==='America/Mexico_City'?'selected':''}>México (CDMX)</option>
+              <option value="Europe/Madrid"                  ${configGlobal.timezone==='Europe/Madrid'?'selected':''}>España (Madrid)</option>
+            </select>
+          </div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="guardarConfigGeneral()">
+              <i class="ti ti-device-floppy"></i> Guardar configuración
+            </button>
+          </div>
+        </div>
+
+        <!-- LINK DEL SISTEMA -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-link"></i> URL del sistema</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+            El sistema está alojado en GitHub Pages — siempre online, sin necesitar encender ninguna PC.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+            <code id="url-sistema" style="flex:1;background:var(--bg-surface);padding:10px 14px;border-radius:8px;border:1px solid var(--border);color:var(--indigo-300);font-size:13px;word-break:break-all">
+              ${window.location.origin + window.location.pathname.replace('/admin/configuracion.html', '')}
+            </code>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('url-sistema').textContent.trim()).then(()=>Toast.success('URL copiada.'))" class="btn btn-ghost btn-sm">
+              <i class="ti ti-copy"></i>
+            </button>
+          </div>
+          <div style="padding:12px 14px;border-radius:8px;background:rgba(105,219,124,0.06);border:1px solid rgba(105,219,124,0.2)">
+            <div style="font-size:12px;color:#69db7c;font-weight:600;margin-bottom:4px"><i class="ti ti-cloud-check"></i> Sistema 100% en la nube</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              A diferencia de XAMPP, este sistema corre en Firebase + GitHub Pages — accesible desde cualquier dispositivo, en cualquier momento, sin servidor local.
+            </div>
+          </div>
+        </div>
+
+        <!-- MANTENIMIENTO -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-tool"></i> Mantenimiento</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+            <div style="padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-database-export" style="color:var(--indigo-400)"></i> Exportar datos</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Descargá un respaldo en JSON de todas las reservas</div>
+              <button class="btn btn-ghost btn-sm" onclick="exportarReservas()"><i class="ti ti-download"></i> Descargar JSON</button>
+            </div>
+            <div style="padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-bell-off" style="color:#ffd43b"></i> Limpiar notificaciones</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Borrá todas las notificaciones del sistema</div>
+              <button class="btn btn-warning btn-sm" onclick="limpiarNotificaciones()"><i class="ti ti-trash"></i> Limpiar</button>
+            </div>
+            <div style="padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-logout" style="color:#ff8787"></i> Cerrar sesión</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Salir de la cuenta del administrador</div>
+              <button class="btn btn-ghost btn-sm" style="color:#ff8787" onclick="confirmar('¿Cerrar sesión?',()=>auth.signOut().then(()=>window.location.href='../index.html'))"><i class="ti ti-logout"></i> Salir</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COLUMNA LATERAL -->
+      <div>
+
+        <!-- INFO DEL SISTEMA -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title"><i class="ti ti-info-circle"></i> Info del sistema</div></div>
+          ${[
+            ['Sistema',     'ReservaSystem v1.0'],
+            ['Base de datos','Firebase Firestore'],
+            ['Archivos',    'Cloudinary CDN'],
+            ['Hosting',     'GitHub Pages'],
+            ['Auth',        'Firebase Authentication'],
+          ].map(([l,v]) => `
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+            <span style="color:var(--text-muted)">${l}</span>
+            <span style="font-weight:600;color:var(--indigo-300)">${v}</span>
+          </div>`).join('')}
+        </div>
+
+        <!-- ACCIONES RÁPIDAS -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title"><i class="ti ti-bolt"></i> Acciones rápidas</div></div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <a href="negocios.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-building-store"></i> Gestionar negocios</a>
+            <a href="usuarios.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-users"></i> Gestionar usuarios</a>
+            <a href="reportes.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-chart-bar"></i> Ver reportes</a>
+            <a href="notificaciones.html" class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-bell"></i> Notificaciones</a>
+          </div>
+        </div>
+
+        <!-- APARIENCIA -->
+        <div class="card mb-4" style="border-color:rgba(116,192,252,0.25);background:rgba(116,192,252,0.04)">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-palette" style="color:#74c0fc"></i> Apariencia del sistema</div>
+            <button class="btn btn-ghost btn-sm" onclick="abrirApariencia()"><i class="ti ti-edit"></i> Editar</button>
+          </div>
+          <div id="apariencia-preview">
+            ${logoUrl ? `<div style="margin-bottom:10px"><img src="${logoUrl}" style="max-height:40px;max-width:100px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:#0d0e14;padding:4px;object-fit:contain"></div>` : ''}
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+              <div style="width:24px;height:24px;border-radius:6px;background:${configGlobal.color_acento||'#4c6ef5'};flex-shrink:0"></div>
+              <span style="font-size:12px;color:var(--text-muted)">Color acento: <code style="color:var(--text-primary)">${configGlobal.color_acento||'#4c6ef5'}</code></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:24px;height:24px;border-radius:6px;background:${configGlobal.color_sidebar||'#0d0e14'};border:1px solid rgba(255,255,255,0.1);flex-shrink:0"></div>
+              <span style="font-size:12px;color:var(--text-muted)">Sidebar: <code style="color:var(--text-primary)">${configGlobal.color_sidebar||'#0d0e14'}</code></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- FIRMA DEL DESARROLLADOR -->
+        <div class="card" style="border-color:rgba(116,192,252,0.25);background:rgba(116,192,252,0.04)">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-code" style="color:#74c0fc"></i> Firma del desarrollador</div>
+            <button class="btn btn-ghost btn-sm" onclick="abrirFirmaDev()"><i class="ti ti-edit"></i> Editar</button>
+          </div>
+          ${devNombre
+            ? `<div style="font-size:13px;color:var(--text-secondary)">
+                 <span style="color:var(--text-muted)">Desarrollado por </span>
+                 <strong style="color:var(--text-primary)">${devNombre}</strong>
+                 ${devTel ? `<span style="color:var(--text-muted)"> · </span><i class="ti ti-brand-whatsapp" style="color:#69db7c;vertical-align:-2px"></i> ${devTel}` : ''}
+               </div>`
+            : `<div style="font-size:12px;color:var(--text-muted)">Sin firma configurada</div>`
+          }
+        </div>
+
+      </div>
+    </div>
+  `;
+
+  document.getElementById('page-content').innerHTML = html;
+}
+
+// ── Guardar config general ───────────────────────────────
+async function guardarConfigGeneral() {
+  const nombre   = document.getElementById('cfg-nombre')?.value.trim();
+  const timezone = document.getElementById('cfg-timezone')?.value;
+  if (!nombre) { Toast.error('El nombre del sistema es obligatorio.'); return; }
+  try {
+    await db.collection('configuracion').doc('global').set(
+      { sistema_nombre: nombre, timezone }, { merge: true }
+    );
+    configGlobal.sistema_nombre = nombre;
+    configGlobal.timezone       = timezone;
+    Toast.success('Configuración guardada correctamente.');
+  } catch(e) {
+    Toast.error('Error al guardar: ' + e.message);
+  }
+}
+
+// ── Cambiar contraseña ───────────────────────────────────
+async function cambiarPassword() {
+  const actual   = document.getElementById('pass-actual')?.value;
+  const nueva    = document.getElementById('pass-nueva')?.value;
+  const repetir  = document.getElementById('pass-repetir')?.value;
+  if (!actual || !nueva || !repetir) { Toast.error('Completá todos los campos.'); return; }
+  if (nueva !== repetir) { Toast.error('Las contraseñas nuevas no coinciden.'); return; }
+  if (nueva.length < 6)  { Toast.error('La contraseña debe tener al menos 6 caracteres.'); return; }
+  try {
+    const credential = firebase.auth.EmailAuthProvider.credential(
+      usuarioActual.email, actual
+    );
+    await auth.currentUser.reauthenticateWithCredential(credential);
+    await auth.currentUser.updatePassword(nueva);
+    Toast.success('Contraseña cambiada correctamente.');
+    Modal.close('modal-pass');
+    document.getElementById('pass-actual').value  = '';
+    document.getElementById('pass-nueva').value   = '';
+    document.getElementById('pass-repetir').value = '';
+  } catch(e) {
+    if (e.code === 'auth/wrong-password') Toast.error('La contraseña actual es incorrecta.');
+    else Toast.error('Error: ' + e.message);
+  }
+}
+
+// ── Apariencia ───────────────────────────────────────────
+function abrirApariencia() {
+  document.getElementById('inp-color-acento').value  = configGlobal.color_acento  || '#4c6ef5';
+  document.getElementById('txt-color-acento').value  = configGlobal.color_acento  || '#4c6ef5';
+  document.getElementById('inp-color-sidebar').value = configGlobal.color_sidebar || '#0d0e14';
+  document.getElementById('txt-color-sidebar').value = configGlobal.color_sidebar || '#0d0e14';
+  actualizarPrevApariencia();
+  // Logo preview
+  const logoUrl = configGlobal.logo_url || '';
+  if (logoUrl) {
+    document.getElementById('logo-preview-wrap').style.display = 'flex';
+    document.getElementById('logo-preview-img').src = logoUrl;
+  } else {
+    document.getElementById('logo-preview-wrap').style.display = 'none';
+    document.getElementById('logo-preview-img').src = '';
+  }
+  Modal.open('modal-apariencia');
+}
+
+async function guardarApariencia() {
+  const colorAcento  = document.getElementById('txt-color-acento').value.trim();
+  const colorSidebar = document.getElementById('txt-color-sidebar').value.trim();
+  const hexReg = /^#[0-9a-fA-F]{6}$/;
+  if (!hexReg.test(colorAcento))  { Toast.error('Color de acento inválido.'); return; }
+  if (!hexReg.test(colorSidebar)) { Toast.error('Color de sidebar inválido.'); return; }
+
+  let logoUrl = configGlobal.logo_url || '';
+  const file = document.getElementById('inp-logo')?.files[0];
+  if (file) {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_PRESET);
+      fd.append('folder', 'reservas/logos');
+      const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method:'POST', body:fd });
+      const data = await resp.json();
+      if (data.secure_url) logoUrl = data.secure_url;
+      else throw new Error('Cloudinary no devolvió URL');
+    } catch(e) {
+      Toast.error('Error subiendo logo: ' + e.message); return;
+    }
+  }
+
+  try {
+    await db.collection('configuracion').doc('global').set(
+      { color_acento: colorAcento, color_sidebar: colorSidebar, logo_url: logoUrl }, { merge: true }
+    );
+    configGlobal.color_acento  = colorAcento;
+    configGlobal.color_sidebar = colorSidebar;
+    configGlobal.logo_url      = logoUrl;
+    Toast.success('Apariencia guardada correctamente.');
+    Modal.close('modal-apariencia');
+    await renderPagina();
+  } catch(e) {
+    Toast.error('Error al guardar: ' + e.message);
+  }
+}
+
+async function resetearApariencia() {
+  confirmar('¿Restaurar la apariencia original? Se borrarán logo y colores personalizados.', async () => {
+    try {
+      await db.collection('configuracion').doc('global').set(
+        { color_acento: '#4c6ef5', color_sidebar: '#0d0e14', logo_url: '' }, { merge: true }
+      );
+      configGlobal.color_acento  = '#4c6ef5';
+      configGlobal.color_sidebar = '#0d0e14';
+      configGlobal.logo_url      = '';
+      Toast.success('Apariencia restaurada.');
+      Modal.close('modal-apariencia');
+      await renderPagina();
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
+
+function previewLogo(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('logo-preview-wrap').style.display = 'flex';
+    document.getElementById('logo-preview-img').src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function borrarLogo() {
+  document.getElementById('logo-preview-wrap').style.display = 'none';
+  document.getElementById('logo-preview-img').src = '';
+  document.getElementById('inp-logo').value = '';
+  configGlobal.logo_url = '';
+}
+function sincColorPicker(cual) {
+  const picker = document.getElementById('inp-color-' + cual);
+  const txt    = document.getElementById('txt-color-' + cual);
+  if (txt) txt.value = picker.value;
+  actualizarPrevApariencia();
+}
+function sincColorTexto(cual) {
+  const txt    = document.getElementById('txt-color-' + cual);
+  const picker = document.getElementById('inp-color-' + cual);
+  const val = txt.value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(val)) { picker.value = val; }
+  actualizarPrevApariencia();
+}
+function resetColor(cual, def) {
+  document.getElementById('inp-color-' + cual).value = def;
+  document.getElementById('txt-color-' + cual).value = def;
+  actualizarPrevApariencia();
+}
+function actualizarPrevApariencia() {
+  const acento  = document.getElementById('inp-color-acento')?.value  || '#4c6ef5';
+  const sidebar = document.getElementById('inp-color-sidebar')?.value || '#0d0e14';
+  const bg  = document.getElementById('prev-sidebar-bg');
+  const dot = document.getElementById('prev-accent-dot');
+  const bar = document.getElementById('prev-bar1');
+  if (bg)  bg.style.background  = sidebar;
+  if (dot) dot.style.background = acento;
+  if (bar) bar.style.background = acento + '40';
+}
+
+// ── Firma del desarrollador ──────────────────────────────
+function abrirFirmaDev() {
+  document.getElementById('dev-nombre').value = configGlobal.dev_nombre || '';
+  document.getElementById('dev-tel').value    = configGlobal.dev_tel    || '';
+  actualizarPrevDev();
+  Modal.open('modal-dev');
+}
+async function guardarFirmaDev() {
+  const nombre = document.getElementById('dev-nombre').value.trim();
+  const tel    = document.getElementById('dev-tel').value.trim();
+  try {
+    await db.collection('configuracion').doc('global').set(
+      { dev_nombre: nombre, dev_tel: tel }, { merge: true }
+    );
+    configGlobal.dev_nombre = nombre;
+    configGlobal.dev_tel    = tel;
+    Toast.success('Firma del desarrollador guardada.');
+    Modal.close('modal-dev');
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+function actualizarPrevDev() {
+  const nombre = document.getElementById('dev-nombre')?.value || '';
+  const tel    = document.getElementById('dev-tel')?.value    || '';
+  const pn = document.getElementById('prev-dev-nombre');
+  const pt = document.getElementById('prev-dev-tel');
+  const pw = document.getElementById('prev-dev-tel-wrap');
+  if (pn) pn.textContent = nombre || '—';
+  if (pt) pt.textContent = tel;
+  if (pw) pw.style.display = tel.trim() !== '' ? '' : 'none';
+}
+
+// ── Exportar reservas a JSON ─────────────────────────────
+async function exportarReservas() {
+  try {
+    Toast.info('Preparando exportación...');
+    const snap = await db.collection('reservas').orderBy('creado_en','desc').get();
+    const datos = [];
+    snap.forEach(d => datos.push({ id: d.id, ...d.data() }));
+    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `reservas_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    Toast.success(`${datos.length} reservas exportadas.`);
+  } catch(e) { Toast.error('Error al exportar: ' + e.message); }
+}
+
+// ── Limpiar notificaciones ───────────────────────────────
+async function limpiarNotificaciones() {
+  confirmar('¿Eliminar TODAS las notificaciones del sistema?', async () => {
+    try {
+      const snap = await db.collection('notificaciones').get();
+      const batch = db.batch();
+      snap.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      Toast.success('Notificaciones eliminadas correctamente.');
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
+</script>
+</body>
+</html>
