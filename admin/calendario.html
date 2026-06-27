@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Calendario — ReservaSystem</title>
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js"></script>
+
+  <script>
+    (async () => {
+      const usuario = await requireLogin();
+
+      renderLayoutAdmin({
+        titulo:        'Calendario',
+        subtitulo:     'Vista mensual de todos los turnos',
+        nombreUsuario: usuario.nombre,
+        rolLabel:      usuario.rol === 'superadmin' ? 'Super Administrador' : 'Gerente',
+      });
+
+      await iniciarCalendario(usuario);
+    })();
+
+    // ── ESTADO GLOBAL ─────────────────────────────────────────
+    let anioActual     = new Date().getFullYear();
+    let mesActual      = new Date().getMonth(); // 0-based
+    let datosMes       = {};   // { "2026-06-15": { pendiente:2, confirmada:1, ... } }
+    let diaSeleccionado = null;
+    let negocioFiltro  = '';
+    let esAdmin        = false;
+    let NEGOCIOS       = []; // [{ id, nombre, color_primario }]
+
+    const MESES   = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const ESTADOS_COLOR = {
+      pendiente:      '#ffd43b',
+      pendiente_pago: '#22d3ee',
+      confirmada:     '#69db7c',
+      completada:     '#74c0fc',
+      cancelada:      '#ff8787',
+      no_asistio:     '#da77f2',
+    };
+    const ESTADOS_LABEL = {
+      pendiente:      'Pendiente',
+      pendiente_pago: 'Pago pend.',
+      confirmada:     'Confirmada',
+      completada:     'Completada',
+      cancelada:      'Cancelada',
+      no_asistio:     'No asistió',
+    };
+
+    // ── INIT ──────────────────────────────────────────────────
+    async function iniciarCalendario(usuario) {
+      esAdmin = usuario.rol === 'superadmin';
+
+      // Cargar negocios si es superadmin
+      if (esAdmin) {
+        const snap = await db.collection('negocios').where('activo','==',true).orderBy('nombre').get();
+        snap.forEach(d => NEGOCIOS.push({ id: d.id, ...d.data() }));
+      } else {
+        // Gerente: solo su negocio
+        negocioFiltro = usuario.negocio_id || '';
+      }
+
+      renderPagina();
+      await renderCalendario();
+    }
+
+    // ── RENDER ESTRUCTURA ─────────────────────────────────────
+    function renderPagina() {
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `
+      <div style="display:flex;gap:16px;align-items:flex-start">
+
+        <!-- PANEL IZQUIERDO -->
+        <div style="width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:14px">
+
+          <!-- Filtros -->
+          <div class="card">
+            <div class="card-title" style="margin-bottom:14px"><i class="ti ti-filter"></i> Filtros</div>
+            ${esAdmin ? `
+            <div class="form-group">
+              <label class="form-label">Negocio</label>
+              <select id="cal-negocio" class="form-control" onchange="onFiltroNegocio()">
+                <option value="">Todos</option>
+                ${NEGOCIOS.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('')}
+              </select>
+            </div>` : ''}
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Navegación</label>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <button class="btn btn-ghost btn-sm" onclick="irAHoy()"><i class="ti ti-calendar-today"></i> Ir a hoy</button>
+                <button class="btn btn-ghost btn-sm" onclick="irAMes(-1)"><i class="ti ti-chevron-left"></i> Mes anterior</button>
+                <button class="btn btn-ghost btn-sm" onclick="irAMes(1)">Mes siguiente <i class="ti ti-chevron-right"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Leyenda estados -->
+          <div class="card">
+            <div class="card-title" style="margin-bottom:12px"><i class="ti ti-traffic-cone"></i> Estados</div>
+            ${Object.entries(ESTADOS_COLOR).map(([k,c]) => `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12px;color:var(--text-secondary)">
+              <div style="width:12px;height:12px;border-radius:3px;background:${c};flex-shrink:0"></div>
+              ${ESTADOS_LABEL[k]}
+            </div>`).join('')}
+          </div>
+
+          <!-- Panel día seleccionado -->
+          <div class="card" id="panel-dia" style="display:none">
+            <div class="card-title" style="margin-bottom:12px">
+              <i class="ti ti-list"></i> <span id="panel-dia-titulo">Reservas del día</span>
+            </div>
+            <div id="panel-dia-contenido" style="font-size:13px;color:var(--text-muted)">Seleccioná un día.</div>
+          </div>
+        </div>
+
+        <!-- CALENDARIO PRINCIPAL -->
+        <div style="flex:1;min-width:0">
+          <div class="card">
+            <!-- Header del mes -->
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+              <button class="btn btn-ghost btn-sm" onclick="irAMes(-1)"><i class="ti ti-chevron-left"></i></button>
+              <div style="text-align:center">
+                <div id="cal-titulo" style="font-size:20px;font-weight:800;color:var(--text-primary)"></div>
+                <div id="cal-stats" style="font-size:12px;color:var(--text-muted);margin-top:2px"></div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="irAMes(1)"><i class="ti ti-chevron-right"></i></button>
+            </div>
+
+            <!-- Encabezados días semana -->
+            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px">
+              ${['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'].map(d =>
+                `<div style="text-align:center;font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;padding:6px 0;letter-spacing:0.5px">${d}</div>`
+              ).join('')}
+            </div>
+
+            <!-- Grid días -->
+            <div id="cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px"></div>
+
+            <!-- Loading -->
+            <div id="cal-loading" style="display:none;text-align:center;padding:20px;color:var(--text-muted)">
+              <span class="spinner"></span> Cargando reservas...
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // ── CARGAR DATOS DEL MES ──────────────────────────────────
+    async function cargarDatosMes() {
+      document.getElementById('cal-loading').style.display = 'block';
+      datosMes = {};
+
+      try {
+        // Rango del mes: primer y último día
+        const primerDia = `${anioActual}-${String(mesActual+1).padStart(2,'0')}-01`;
+        const ultimoDia = `${anioActual}-${String(mesActual+1).padStart(2,'0')}-${String(new Date(anioActual, mesActual+1, 0).getDate()).padStart(2,'0')}`;
+
+        let query = db.collection('reservas')
+          .where('fecha', '>=', primerDia)
+          .where('fecha', '<=', ultimoDia);
+
+        if (negocioFiltro) {
+          query = query.where('negocio_id', '==', negocioFiltro);
+        }
+
+        const snap = await query.get();
+        snap.forEach(d => {
+          const r = d.data();
+          if (!r.fecha) return;
+          if (!datosMes[r.fecha]) datosMes[r.fecha] = {};
+          const e = r.estado || 'pendiente';
+          datosMes[r.fecha][e] = (datosMes[r.fecha][e] || 0) + 1;
+        });
+      } catch(e) {
+        console.error('Error cargando mes:', e);
+      }
+
+      document.getElementById('cal-loading').style.display = 'none';
+    }
+
+    // ── RENDER GRILLA ─────────────────────────────────────────
+    async function renderCalendario() {
+      await cargarDatosMes();
+
+      document.getElementById('cal-titulo').textContent = MESES[mesActual] + ' ' + anioActual;
+
+      const grid      = document.getElementById('cal-grid');
+      const hoy       = new Date();
+      const primerDia = new Date(anioActual, mesActual, 1);
+      const diasMes   = new Date(anioActual, mesActual+1, 0).getDate();
+
+      // Primer día de la semana (0=Lun ... 6=Dom)
+      let diaInicio = primerDia.getDay(); // 0=Dom JS
+      diaInicio = diaInicio === 0 ? 6 : diaInicio - 1;
+
+      grid.innerHTML = '';
+
+      // Celdas vacías iniciales
+      for (let i = 0; i < diaInicio; i++) {
+        const vacia = document.createElement('div');
+        vacia.style.cssText = 'min-height:80px;background:var(--bg-surface);border-radius:6px;opacity:0.3;border:1px solid var(--border)';
+        grid.appendChild(vacia);
+      }
+
+      let totalMes = 0;
+      for (let d = 1; d <= diasMes; d++) {
+        const fecha  = `${anioActual}-${String(mesActual+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const esHoy  = hoy.getFullYear()===anioActual && hoy.getMonth()===mesActual && hoy.getDate()===d;
+        const datos  = datosMes[fecha] || {};
+        const total  = Object.values(datos).reduce((a,b)=>a+b, 0);
+        totalMes += total;
+        grid.appendChild(crearCelda(d, fecha, datos, total, esHoy));
+      }
+
+      const totalGeneral = Object.values(datosMes).reduce((acc,day)=>acc+Object.values(day).reduce((a,b)=>a+b,0), 0);
+      document.getElementById('cal-stats').textContent = totalGeneral + ' reservas este mes';
+    }
+
+    function crearCelda(dia, fecha, datos, total, esHoy) {
+      const div = document.createElement('div');
+      const seleccionado = diaSeleccionado === fecha;
+      div.style.cssText = `min-height:80px;background:${seleccionado?'rgba(59,91,219,0.15)':esHoy?'rgba(59,91,219,0.08)':'var(--bg-surface)'};border-radius:6px;border:1px solid ${seleccionado||esHoy?'var(--indigo-500)':'var(--border)'};padding:6px;cursor:pointer;transition:all 0.15s`;
+      div.dataset.fecha = fecha;
+      div.onclick = () => seleccionarDia(fecha);
+      div.onmouseover = () => { if(diaSeleccionado!==fecha) div.style.borderColor='var(--indigo-400)'; };
+      div.onmouseout  = () => { if(diaSeleccionado!==fecha) div.style.borderColor=esHoy?'var(--indigo-500)':'var(--border)'; };
+
+      let html = `<div style="font-size:13px;font-weight:${esHoy?'800':'600'};color:${esHoy?'var(--indigo-300)':'var(--text-primary)'};margin-bottom:4px">
+        ${dia}${esHoy?` <span style="font-size:9px;background:var(--indigo-600);color:#fff;padding:1px 5px;border-radius:10px;vertical-align:middle">HOY</span>`:''}
+      </div>`;
+
+      if (total > 0) {
+        Object.entries(datos).forEach(([estado, cant]) => {
+          const c = ESTADOS_COLOR[estado] || '#aaa';
+          const label = estado === 'no_asistio' ? 'N/A' : estado === 'pendiente_pago' ? 'P.P' : estado.substring(0,3).toUpperCase();
+          html += `<div style="font-size:10px;font-weight:600;padding:1px 5px;border-radius:3px;background:${c}22;color:${c};margin-bottom:2px;display:flex;align-items:center;justify-content:space-between">
+            <span>${label}</span><span>${cant}</span>
+          </div>`;
+        });
+      }
+
+      div.innerHTML = html;
+      return div;
+    }
+
+    // ── SELECCIONAR DÍA ───────────────────────────────────────
+    async function seleccionarDia(fecha) {
+      diaSeleccionado = fecha;
+
+      // Resaltar celda seleccionada y reset otras
+      document.querySelectorAll('#cal-grid > div[data-fecha]').forEach(c => {
+        const f    = c.dataset.fecha;
+        const esH  = c.style.borderColor === 'var(--indigo-500)' && f !== fecha;
+        c.style.borderColor = f === fecha ? 'var(--indigo-500)' : 'var(--border)';
+        c.style.background  = f === fecha ? 'rgba(59,91,219,0.15)' : 'var(--bg-surface)';
+      });
+      // Re-renderizar para actualizar estilos correctamente
+      const hoy = new Date();
+      document.querySelectorAll('#cal-grid > div[data-fecha]').forEach(c => {
+        const f = c.dataset.fecha;
+        const [y,m,d] = f.split('-').map(Number);
+        const esHoy = hoy.getFullYear()===y && hoy.getMonth()+1===m && hoy.getDate()===d;
+        c.style.background  = f===fecha ? 'rgba(59,91,219,0.15)' : esHoy ? 'rgba(59,91,219,0.08)' : 'var(--bg-surface)';
+        c.style.borderColor = f===fecha||esHoy ? 'var(--indigo-500)' : 'var(--border)';
+        if (f === fecha) c.style.borderColor = 'var(--indigo-500)';
+      });
+
+      const panel  = document.getElementById('panel-dia');
+      const cont   = document.getElementById('panel-dia-contenido');
+      const titulo = document.getElementById('panel-dia-titulo');
+      panel.style.display = 'block';
+
+      const [y,m,d] = fecha.split('-');
+      titulo.textContent = `${d}/${m}/${y}`;
+      cont.innerHTML = `<div style="text-align:center;padding:14px"><span class="spinner"></span></div>`;
+
+      try {
+        let query = db.collection('reservas').where('fecha','==',fecha);
+        if (negocioFiltro) query = query.where('negocio_id','==',negocioFiltro);
+        const snap = await query.orderBy('hora_inicio').get();
+
+        if (snap.empty) {
+          cont.innerHTML = `
+            <div style="color:var(--text-muted);font-size:12px;text-align:center;padding:10px">Sin reservas este día.</div>
+            <a href="reservas.html" class="btn btn-primary btn-sm" style="width:100%;justify-content:center;margin-top:8px">
+              <i class="ti ti-plus"></i> Crear reserva
+            </a>`;
+          return;
+        }
+
+        // Necesitamos nombres de servicios y profesionales — los buscamos en batch
+        const reservas = [];
+        snap.forEach(d => reservas.push({ id: d.id, ...d.data() }));
+
+        // Obtener info de servicios y profesionales únicos
+        const srvIds  = [...new Set(reservas.map(r => r.servicio_id).filter(Boolean))];
+        const profIds = [...new Set(reservas.map(r => r.profesional_id).filter(Boolean))];
+
+        const [srvDocs, profDocs] = await Promise.all([
+          Promise.all(srvIds.map(id => db.collection('servicios').doc(id).get())),
+          Promise.all(profIds.map(id => db.collection('profesionales').doc(id).get())),
+        ]);
+
+        const SRV_MAP  = {};
+        const PROF_MAP = {};
+        srvDocs.forEach(d  => { if(d.exists) SRV_MAP[d.id]  = d.data(); });
+        profDocs.forEach(d => { if(d.exists) PROF_MAP[d.id] = d.data(); });
+
+        cont.innerHTML = reservas.map(r => {
+          const c    = ESTADOS_COLOR[r.estado] || '#aaa';
+          const lbl  = ESTADOS_LABEL[r.estado] || r.estado;
+          const srv  = SRV_MAP[r.servicio_id]?.nombre  || r.servicio_nombre  || '—';
+          const prof = PROF_MAP[r.profesional_id]?.nombre || r.profesional_nombre || '';
+          const hi   = (r.hora_inicio||'').slice(0,5);
+          const hf   = (r.hora_fin||'').slice(0,5);
+          return `
+          <div style="padding:9px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);margin-bottom:6px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+              <span style="font-size:13px;font-weight:700;color:var(--text-primary)">${hi}${hf?' → '+hf:''}</span>
+              <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;background:${c}22;color:${c}">${lbl}</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--text-primary)">${limpiar(r.cliente_nombre||'—')}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${limpiar(srv)}</div>
+            ${prof ? `<div style="font-size:11px;color:var(--text-muted)">${limpiar(prof)}</div>` : ''}
+          </div>`;
+        }).join('') + `
+        <a href="reservas.html?fecha=${fecha}" class="btn btn-ghost btn-sm" style="width:100%;justify-content:center;margin-top:4px">
+          <i class="ti ti-list"></i> Ver todas
+        </a>`;
+      } catch(e) {
+        cont.innerHTML = `<div style="color:#ff8787;font-size:12px">Error al cargar: ${e.message}</div>`;
+        console.error(e);
+      }
+    }
+
+    // ── FILTRO NEGOCIO ────────────────────────────────────────
+    function onFiltroNegocio() {
+      negocioFiltro = document.getElementById('cal-negocio')?.value || '';
+      diaSeleccionado = null;
+      document.getElementById('panel-dia').style.display = 'none';
+      renderCalendario();
+    }
+
+    // ── NAVEGACIÓN ────────────────────────────────────────────
+    function irAMes(delta) {
+      mesActual += delta;
+      if (mesActual > 11) { mesActual = 0;  anioActual++; }
+      if (mesActual < 0)  { mesActual = 11; anioActual--; }
+      diaSeleccionado = null;
+      document.getElementById('panel-dia').style.display = 'none';
+      renderCalendario();
+    }
+
+    function irAHoy() {
+      anioActual      = new Date().getFullYear();
+      mesActual       = new Date().getMonth();
+      diaSeleccionado = null;
+      document.getElementById('panel-dia').style.display = 'none';
+      renderCalendario();
+    }
+  </script>
+</body>
+</html>
