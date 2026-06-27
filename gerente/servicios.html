@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servicios — Panel Gerente</title>
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js"></script>
+
+  <script>
+    let SERVICIOS_CACHE = [];
+    let NEGOCIO_ID      = '';
+    let NEGOCIO_NOMBRE  = '';
+    
+
+    const ICONOS_SUGERIDOS = ['ti-scissors','ti-heart','ti-star','ti-sparkles','ti-yoga','ti-dumbbell','ti-stethoscope','ti-eye','ti-music','ti-camera','ti-brush','ti-palette','ti-book','ti-tools','ti-plant','ti-pet'];
+    const COLORES_SUGERIDOS = ['#3B5BDB','#7048E8','#1098AD','#2F9E44','#E8590C','#E03131','#862E9C','#F59F00'];
+
+    (async () => {
+      const usuario = await requireLogin('gerente');
+      NEGOCIO_ID     = usuario.negocio.id;
+      NEGOCIO_NOMBRE = usuario.negocio.nombre;
+
+      renderLayoutAdmin({
+        titulo: 'Servicios',
+        rol: 'gerente',
+        negocio: usuario.negocio,
+        subtitulo: 'Servicios de tu negocio',
+        nombreUsuario: usuario.nombre,
+        rolLabel: 'Gerente',
+        topbarActionsHTML: `
+          <button class="btn btn-primary" onclick="abrirModalNuevo()">
+            <i class="ti ti-plus"></i> Nuevo servicio
+          </button>`,
+      });
+
+      await cargarServicios();
+    })();
+
+    // ============================================================
+    //  CARGA + RENDER
+    // ============================================================
+    async function cargarServicios() {
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+      const [serviciosSnap, reservasSnap] = await Promise.all([
+        db.collection('servicios').where('negocio_id', '==', NEGOCIO_ID).get(),
+        db.collection('reservas').where('negocio_id', '==', NEGOCIO_ID).get(),
+      ]);
+
+      const reservasPorServicio = {};
+      reservasSnap.forEach(d => {
+        const r = d.data();
+        if (r.servicio_id) reservasPorServicio[r.servicio_id] = (reservasPorServicio[r.servicio_id] || 0) + 1;
+      });
+
+      const servicios = [];
+      serviciosSnap.forEach(d => servicios.push({
+        id: d.id,
+        ...d.data(),
+        total_reservas: reservasPorServicio[d.id] || 0,
+      }));
+      servicios.sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+
+      SERVICIOS_CACHE = servicios;
+      renderServicios(servicios);
+    }
+
+    function renderServicios(servicios) {
+      const cont = document.getElementById('page-content');
+
+      const total = servicios.length;
+      const activos = servicios.filter(s => s.activo !== false).length;
+      const inactivos = total - activos;
+
+      const filasHTML = servicios.length === 0 ? `
+        <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">
+          Sin servicios. <button class="btn btn-primary btn-sm" onclick="abrirModalNuevo()"><i class="ti ti-plus"></i> Crear primero</button>
+        </td></tr>` : servicios.map(s => {
+          const color = s.color || '#3B5BDB';
+          const desc = s.descripcion ? `<div style="font-size:11px;color:var(--text-muted)">${limpiar(s.descripcion.substring(0,50))}${s.descripcion.length>50?'...':''}</div>` : '';
+          return `
+        <tr data-id="${s.id}" data-neg="${s.negocio_id || ''}" data-nombre="${(s.nombre || '').toLowerCase()}">
+          <td style="color:var(--text-muted);font-size:12px">#${s.id.substring(0,6)}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div style="width:12px;height:36px;border-radius:4px;background:${color};flex-shrink:0"></div>
+              <div>
+                <div style="font-weight:600;color:var(--text-primary)">${limpiar(s.nombre)}</div>
+                ${desc}
+              </div>
+            </div>
+          </td>
+          <td>
+            <span style="display:inline-flex;align-items:center;gap:4px;font-size:13px">
+              <i class="ti ti-clock" style="color:var(--text-muted)"></i>
+              ${s.duracion_min || 30} min
+            </span>
+          </td>
+          <td style="font-weight:700;color:var(--indigo-300)">${formatearPrecio(s.precio)}</td>
+          <td><span style="font-weight:600">${s.total_reservas}</span> <span style="font-size:11px;color:var(--text-muted)">reservas</span></td>
+          <td>
+            <button onclick="toggleServicio('${s.id}', this)" class="badge-estado ${s.activo !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none">
+              <i class="ti ${s.activo !== false ? 'ti-check' : 'ti-x'}"></i>${s.activo !== false ? 'Activo' : 'Inactivo'}
+            </button>
+          </td>
+          <td>
+            <div style="display:flex;gap:6px;justify-content:center">
+              <button onclick="editarServicio('${s.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></button>
+              <button onclick="eliminarServicioBtn('${s.id}', '${limpiar(s.nombre).replace(/'/g, "\\'")}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>
+            </div>
+          </td>
+        </tr>`;
+        }).join('');
+
+      cont.innerHTML = `
+        <div class="kpi-grid mb-6" style="grid-template-columns:repeat(3,1fr)">
+          <div class="kpi-card"><div class="kpi-icon indigo"><i class="ti ti-list-check"></i></div>
+            <div><div class="kpi-value" data-counter="${total}">${total}</div><div class="kpi-label">Total servicios</div></div></div>
+          <div class="kpi-card"><div class="kpi-icon green"><i class="ti ti-check"></i></div>
+            <div><div class="kpi-value" data-counter="${activos}">${activos}</div><div class="kpi-label">Activos</div></div></div>
+          <div class="kpi-card"><div class="kpi-icon amber"><i class="ti ti-x"></i></div>
+            <div><div class="kpi-value" data-counter="${inactivos}">${inactivos}</div><div class="kpi-label">Inactivos</div></div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-list-check"></i> Servicios</div>
+            <div style="display:flex;gap:10px">              <div style="position:relative">
+                <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted)"></i>
+                <input type="text" id="buscador" class="form-control" placeholder="Buscar..." style="padding-left:34px;width:180px" oninput="filtrarServicios()">
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="tabla">
+              <thead>
+                <tr><th>#</th><th>Servicio</th><th>Duración</th><th>Precio</th><th>Reservas</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
+              </thead>
+              <tbody id="tbody-srv">
+                ${filasHTML}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- MODAL SERVICIO -->
+        <div class="modal-overlay" id="modal-srv">
+          <div class="modal" style="max-width:520px;max-height:90vh;display:flex;flex-direction:column">
+            <div class="modal-header">
+              <div class="modal-title" id="modal-srv-titulo">Nuevo servicio</div>
+              <button class="btn btn-ghost btn-icon" onclick="Modal.close('modal-srv')"><i class="ti ti-x"></i></button>
+            </div>
+            <form id="form-srv" novalidate style="overflow-y:auto;flex:1;padding-right:4px">
+              <input type="hidden" id="srv-id" value="">
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Nombre del servicio *</label>
+                  <input type="text" id="srv-nombre" class="form-control" placeholder="Ej: Corte de cabello" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Negocio *</label>
+                  <select id="srv-negocio" class="form-control">
+                    <option value="">— Seleccioná —</option>
+                    ${opcionesNegModal}
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Descripción</label>
+                <textarea id="srv-desc" class="form-control" rows="2" placeholder="Descripción breve..." maxlength="500" oninput="document.getElementById('srv-desc-count').textContent=500-this.value.length"></textarea>
+                <small style="color:var(--text-muted)">Caracteres restantes: <span id="srv-desc-count">500</span></small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Mensaje personalizado de confirmación <span style="color:var(--text-muted)">(Opcional)</span></label>
+                <textarea id="srv-msg" class="form-control" rows="2" placeholder="Ej: ¡Gracias por elegirnos! Te recordamos que debes llegar 10 minutos antes." maxlength="800" oninput="document.getElementById('srv-msg-count').textContent=800-this.value.length"></textarea>
+                <small style="color:var(--text-muted)">Caracteres restantes: <span id="srv-msg-count">800</span></small>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Imagen del servicio</label>
+                <div style="display:flex;gap:12px;align-items:center">
+                  <img id="srv-imagen-preview" src="" style="width:54px;height:54px;border-radius:10px;object-fit:cover;border:1px solid var(--border-strong);display:none">
+                  <input type="file" id="srv-imagen-file" accept="image/*" class="form-control" style="flex:1">
+                  <input type="hidden" id="srv-imagen-url" value="">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Ícono del servicio <span style="color:var(--text-muted)">(clase Tabler Icons)</span></label>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <input type="text" id="srv-icono" class="form-control" placeholder="Ej: ti-scissors, ti-heart, ti-star" style="flex:1">
+                  <div style="width:40px;height:40px;display:flex;align-items:center;justify-content:center;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;font-size:22px">
+                    <i id="srv-icono-i" class="ti ti-scissors"></i>
+                  </div>
+                </div>
+                <small style="color:var(--text-muted)">Ícono que se muestra en la página pública. Buscá íconos en <a href="https://tabler.io/icons" target="_blank" style="color:var(--indigo-300)">tabler.io/icons</a>. Siempre con prefijo <code>ti-</code>.</small>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+                  ${ICONOS_SUGERIDOS.map(ic => `
+                  <button type="button" onclick="setIconoServicio('${ic}')" title="${ic}" style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:16px">
+                    <i class="ti ${ic}"></i>
+                  </button>`).join('')}
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Capacidad máxima</label>
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <input type="number" id="srv-capacidad" class="form-control" value="1" min="1" style="flex:1">
+                    <span style="color:var(--text-muted);white-space:nowrap">personas</span>
+                  </div>
+                  <small style="color:var(--text-muted)">Máx. personas por horario. Usá 1 para servicios individuales.</small>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Anticipo para pago online <span style="color:var(--text-muted)">(Opcional)</span></label>
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <span style="color:var(--text-muted)">$</span>
+                    <input type="number" id="srv-anticipo" class="form-control" placeholder="Monto de seña opcional" min="0" step="0.01" value="">
+                  </div>
+                  <small style="color:var(--text-muted)">Si lo establecés, los clientes pagan este monto online.</small>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Métodos de pago aceptados</label>
+                <div style="display:flex;flex-direction:column;gap:6px;padding:10px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px">
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" id="srv-pago-efectivo" checked style="width:16px;height:16px;accent-color:var(--indigo-500)">
+                    Efectivo
+                  </label>
+                  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text-secondary)">
+                    <input type="checkbox" id="srv-pago-transferencia" style="width:16px;height:16px;accent-color:var(--indigo-500)">
+                    Transferencia / Pago online
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Anticipación mínima para reservar</label>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <input type="number" id="srv-anticipacion" class="form-control" value="0" min="0" style="flex:1">
+                  <span style="color:var(--text-muted);white-space:nowrap">horas</span>
+                </div>
+                <small style="color:var(--text-muted)">Mínimo de horas antes del turno para poder reservar. 0 = sin límite.</small>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Duración (minutos) *</label>
+                  <select id="srv-dur" class="form-control">
+                    <option value="15">15 min</option>
+                    <option value="30" selected>30 min</option>
+                    <option value="45">45 min</option>
+                    <option value="60">1 hora</option>
+                    <option value="90">1 hora 30 min</option>
+                    <option value="120">2 horas</option>
+                    <option value="180">3 horas</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Precio ($)</label>
+                  <input type="number" id="srv-precio" class="form-control" placeholder="0.00" min="0" step="0.01" value="0">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Color en el calendario</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input type="color" id="srv-color" value="#3B5BDB" style="width:46px;height:38px;border-radius:8px;border:1px solid var(--border-strong);background:none;cursor:pointer;padding:2px">
+                  <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    ${COLORES_SUGERIDOS.map(c => `<button type="button" onclick="setColorServicio('${c}')" style="width:26px;height:26px;border-radius:6px;background:${c};border:2px solid transparent;cursor:pointer" title="${c}"></button>`).join('')}
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group" style="display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <input type="checkbox" id="srv-activo" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+                  <label for="srv-activo" style="cursor:pointer;color:var(--text-secondary)">Servicio activo</label>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <input type="checkbox" id="srv-publico" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+                    <label for="srv-publico" style="cursor:pointer;color:var(--text-secondary)">Servicio público</label>
+                  </div>
+                  <small style="color:var(--text-muted);padding-left:28px">Si está marcado, el servicio será visible en la página pública de reservas. Si no, estará oculto para los clientes.</small>
+                </div>
+              </div>
+
+              <div class="divider"></div>
+              <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn btn-ghost" onclick="Modal.close('modal-srv')">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-guardar-srv"><i class="ti ti-device-floppy"></i> Guardar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('srv-icono').addEventListener('input', function() {
+        const val = this.value.trim();
+        document.getElementById('srv-icono-i').className = 'ti ' + (val || 'ti-scissors');
+      });
+
+      document.getElementById('form-srv').addEventListener('submit', guardarServicio);
+
+      document.querySelectorAll('[data-counter]').forEach(el => {
+        animarContador(el, parseFloat(el.dataset.counter) || 0, el.dataset.prefix || '', el.dataset.suffix || '');
+      });
+    }
+
+    // ============================================================
+    //  FILTRO
+    // ============================================================
+    function filtrarServicios() {
+      const q = document.getElementById('buscador').value.toLowerCase();
+      const neg = document.getElementById('filtro-neg').value;
+      document.querySelectorAll('#tbody-srv tr[data-id]').forEach(r => {
+        const mq = !q || r.dataset.nombre.includes(q);
+        const mn = !neg || r.dataset.neg === neg;
+        r.style.display = mq && mn ? '' : 'none';
+      });
+    }
+
+    function setColorServicio(hex) { document.getElementById('srv-color').value = hex; }
+    function setIconoServicio(ic) {
+      document.getElementById('srv-icono').value = ic;
+      document.getElementById('srv-icono-i').className = 'ti ' + ic;
+    }
+
+    // ============================================================
+    //  ABRIR MODAL NUEVO
+    // ============================================================
+    function abrirModalNuevo() {
+      document.getElementById('modal-srv-titulo').textContent = 'Nuevo servicio';
+      document.getElementById('form-srv').reset();
+      document.getElementById('srv-id').value = '';
+      document.getElementById('srv-activo').checked = true;
+      document.getElementById('srv-publico').checked = true;
+      document.getElementById('srv-color').value = '#3B5BDB';
+      document.getElementById('srv-desc-count').textContent = 500;
+      document.getElementById('srv-msg-count').textContent = 800;
+      document.getElementById('srv-capacidad').value = 1;
+      document.getElementById('srv-anticipo').value = '';
+      document.getElementById('srv-anticipacion').value = 0;
+      document.getElementById('srv-imagen-preview').style.display = 'none';
+      document.getElementById('srv-imagen-url').value = '';
+      document.getElementById('srv-negocio').value = NEGOCIO_ID;
+      document.getElementById('srv-icono').value = 'ti-scissors';
+      document.getElementById('srv-icono-i').className = 'ti ti-scissors';
+      document.getElementById('srv-pago-efectivo').checked = true;
+      document.getElementById('srv-pago-transferencia').checked = false;
+      Modal.open('modal-srv');
+    }
+
+    // ============================================================
+    //  EDITAR
+    // ============================================================
+    function editarServicio(id) {
+      const s = SERVICIOS_CACHE.find(x => x.id === id);
+      if (!s) { Toast.error('No se encontró el servicio'); return; }
+
+      document.getElementById('modal-srv-titulo').textContent = 'Editar servicio';
+      document.getElementById('srv-id').value      = s.id;
+      document.getElementById('srv-nombre').value  = s.nombre || '';
+      document.getElementById('srv-negocio').value = s.negocio_id || '';
+      document.getElementById('srv-desc').value    = s.descripcion || '';
+      document.getElementById('srv-msg').value      = s.mensaje_confirmacion || '';
+      document.getElementById('srv-dur').value      = s.duracion_min || 30;
+      document.getElementById('srv-precio').value   = s.precio || 0;
+      document.getElementById('srv-color').value    = s.color || '#3B5BDB';
+      document.getElementById('srv-activo').checked = s.activo !== false;
+      document.getElementById('srv-publico').checked = s.publico !== false;
+      document.getElementById('srv-capacidad').value = s.capacidad_max || 1;
+      document.getElementById('srv-anticipo').value  = s.anticipo || '';
+      document.getElementById('srv-anticipacion').value = s.anticipacion_min_horas || 0;
+
+      const iconoVal = s.icono || 'ti-scissors';
+      document.getElementById('srv-icono').value = iconoVal;
+      document.getElementById('srv-icono-i').className = 'ti ' + iconoVal;
+      document.getElementById('srv-desc-count').textContent = 500 - (s.descripcion || '').length;
+      document.getElementById('srv-msg-count').textContent  = 800 - (s.mensaje_confirmacion || '').length;
+
+      document.getElementById('srv-imagen-url').value = s.imagen || '';
+      const preview = document.getElementById('srv-imagen-preview');
+      if (s.imagen) { preview.src = s.imagen; preview.style.display = ''; }
+      else preview.style.display = 'none';
+
+      const metodos = s.metodos_pago_lista || [];
+      document.getElementById('srv-pago-efectivo').checked = metodos.length === 0 || metodos.includes('efectivo');
+      document.getElementById('srv-pago-transferencia').checked = metodos.includes('transferencia');
+
+      Modal.open('modal-srv');
+    }
+
+    // ============================================================
+    //  SUBIDA DE IMAGEN A CLOUDINARY
+    // ============================================================
+    async function subirImagenServicio(file) {
+      const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`;
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_PRESET);
+      fd.append('folder', 'reservas/servicios');
+      const res = await fetch(url, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Error subiendo imagen a Cloudinary');
+      const data = await res.json();
+      return data.secure_url;
+    }
+
+    // ============================================================
+    //  GUARDAR
+    // ============================================================
+    async function guardarServicio(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-guardar-srv');
+      const id = document.getElementById('srv-id').value;
+
+      const nombre = document.getElementById('srv-nombre').value.trim();
+      const negocioId = document.getElementById('srv-negocio').value;
+      if (!nombre) { Toast.error('El nombre es obligatorio.'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner"></span> Guardando...`;
+
+      try {
+        let imagenUrl = document.getElementById('srv-imagen-url').value || null;
+        const imagenFile = document.getElementById('srv-imagen-file').files[0];
+        if (imagenFile) imagenUrl = await subirImagenServicio(imagenFile);
+
+        const metodosPago = [];
+        if (document.getElementById('srv-pago-efectivo').checked) metodosPago.push('efectivo');
+        if (document.getElementById('srv-pago-transferencia').checked) metodosPago.push('transferencia');
+
+        const payload = {
+          nombre,
+          negocio_id: negocioId,
+          descripcion: document.getElementById('srv-desc').value.trim() || null,
+          mensaje_confirmacion: document.getElementById('srv-msg').value.trim() || null,
+          imagen: imagenUrl,
+          icono: document.getElementById('srv-icono').value.trim() || 'ti-scissors',
+          capacidad_max: parseInt(document.getElementById('srv-capacidad').value) || 1,
+          anticipo: parseFloat(document.getElementById('srv-anticipo').value) || 0,
+          metodos_pago_lista: metodosPago,
+          anticipacion_min_horas: parseInt(document.getElementById('srv-anticipacion').value) || 0,
+          duracion_min: parseInt(document.getElementById('srv-dur').value) || 30,
+          precio: parseFloat(document.getElementById('srv-precio').value) || 0,
+          color: document.getElementById('srv-color').value || '#3B5BDB',
+          activo: document.getElementById('srv-activo').checked,
+          publico: document.getElementById('srv-publico').checked,
+        };
+
+        if (id) {
+          await db.collection('servicios').doc(id).update(payload);
+          Toast.success('Servicio actualizado correctamente.');
+        } else {
+          payload.creado_en = firebase.firestore.FieldValue.serverTimestamp();
+          await db.collection('servicios').add(payload);
+          Toast.success('Servicio creado correctamente.');
+        }
+
+        Modal.close('modal-srv');
+        await cargarServicios();
+      } catch (err) {
+        console.error(err);
+        Toast.error('Error al guardar: ' + (err.message || 'desconocido'));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="ti ti-device-floppy"></i> Guardar`;
+      }
+    }
+
+    // ============================================================
+    //  TOGGLE ESTADO
+    // ============================================================
+    async function toggleServicio(id, btnEl) {
+      const s = SERVICIOS_CACHE.find(x => x.id === id);
+      if (!s) return;
+      const nuevoEstado = !(s.activo !== false);
+      try {
+        await db.collection('servicios').doc(id).update({ activo: nuevoEstado });
+        s.activo = nuevoEstado;
+        btnEl.className = `badge-estado ${nuevoEstado ? 'estado-confirmada' : 'estado-cancelada'}`;
+        btnEl.innerHTML = `<i class="ti ${nuevoEstado ? 'ti-check' : 'ti-x'}"></i>${nuevoEstado ? 'Activo' : 'Inactivo'}`;
+        Toast.success('Estado actualizado.');
+      } catch (err) {
+        console.error(err);
+        Toast.error('No se pudo cambiar el estado.');
+      }
+    }
+
+    // ============================================================
+    //  ELIMINAR
+    // ============================================================
+    function eliminarServicioBtn(id, nombre) {
+      confirmar(`¿Eliminar "${nombre}"? No se puede deshacer.`, async () => {
+        try {
+          await db.collection('servicios').doc(id).delete();
+          Toast.success('Servicio eliminado correctamente.');
+          await cargarServicios();
+        } catch (err) {
+          console.error(err);
+          Toast.error('Error al eliminar.');
+        }
+      });
+    }
+  </script>
+
+  <script src="../assets/js/app.js"></script>
+</body>
+</html>
