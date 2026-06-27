@@ -7,40 +7,73 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/dist/tabler-icons.min.css">
 <link rel="stylesheet" href="../assets/css/dark.css">
 <style>
-/* ── Tabla horarios ── */
+/* Selects con colores del dark.css */
+.h-select {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: 9px 12px;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--ease);
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239399a6' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+.h-select:focus { border-color: var(--indigo-500); box-shadow: 0 0 0 3px rgba(59,91,219,0.18); }
+.h-select option { background: #1a1b27; color: var(--text-primary); }
+
+/* Time inputs */
+.h-time {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 13px;
+  width: 130px;
+  outline: none;
+  transition: border-color var(--ease);
+  color-scheme: dark;
+}
+.h-time:focus { border-color: var(--indigo-500); }
+.h-time:disabled { opacity: .4; cursor: not-allowed; }
+
+/* Toggle */
+.toggle-dia { position:relative; display:inline-block; width:40px; height:22px; }
+.toggle-dia input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; inset:0; background:#2a2d4a; border-radius:22px; cursor:pointer; transition:.25s; }
+.toggle-slider:before { content:''; position:absolute; width:16px; height:16px; left:3px; bottom:3px; background:#9399a6; border-radius:50%; transition:.25s; }
+.toggle-dia input:checked + .toggle-slider { background: var(--indigo-600); }
+.toggle-dia input:checked + .toggle-slider:before { background:#fff; transform:translateX(18px); }
+
+/* Tabla horarios */
 .horario-table { width:100%; border-collapse:collapse; }
-.horario-table th { background:var(--bg-card); color:var(--text-muted); font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); }
-.horario-table td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:middle; color:var(--text-primary); font-size:14px; }
+.horario-table th { background:var(--bg-card); color:var(--text-muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.6px; padding:10px 14px; text-align:left; border-bottom:1px solid var(--border); }
+.horario-table td { padding:10px 14px; border-bottom:1px solid var(--border); vertical-align:middle; }
 .horario-table tr:last-child td { border-bottom:none; }
 .horario-table tr:hover td { background:var(--bg-hover); }
-.dia-label { font-weight:600; display:flex; align-items:center; gap:8px; }
-.dia-badge { width:8px; height:8px; border-radius:50%; background:var(--color-primary); flex-shrink:0; }
-.dia-badge.inactivo { background:var(--text-muted); }
-input[type=time] { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:var(--text-primary); padding:6px 10px; font-size:13px; width:120px; }
-input[type=time]:focus { outline:none; border-color:var(--color-primary); }
-.toggle-dia { position:relative; display:inline-block; width:40px; height:22px; flex-shrink:0; }
-.toggle-dia input { opacity:0; width:0; height:0; }
-.toggle-slider { position:absolute; inset:0; background:#3a3a4a; border-radius:22px; cursor:pointer; transition:.25s; }
-.toggle-slider:before { content:''; position:absolute; width:16px; height:16px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.25s; }
-.toggle-dia input:checked + .toggle-slider { background:var(--color-primary); }
-.toggle-dia input:checked + .toggle-slider:before { transform:translateX(18px); }
-.presets-bar { display:flex; gap:8px; flex-wrap:wrap; }
-.preset-btn { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:var(--text-secondary); font-size:12px; padding:5px 12px; cursor:pointer; transition:all .2s; }
-.preset-btn:hover { background:var(--color-primary); color:#fff; border-color:var(--color-primary); }
-.prof-select-wrap { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
-.prof-select-wrap label { font-size:12px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; white-space:nowrap; }
-.prof-select-wrap select { background:var(--bg-input); border:1px solid var(--border); border-radius:8px; color:var(--text-primary); padding:8px 14px; font-size:14px; min-width:240px; cursor:pointer; }
-.prof-select-wrap select:focus { outline:none; border-color:var(--color-primary); }
-.horario-empty { text-align:center; padding:60px 20px; color:var(--text-muted); }
-.horario-empty i { font-size:48px; display:block; margin-bottom:12px; opacity:.35; }
+.dia-dot { width:8px; height:8px; border-radius:50%; background:var(--indigo-500); flex-shrink:0; transition:background .2s; }
+.dia-dot.off { background: #2a2d4a; }
+
+/* Presets */
+.preset-btn { background:var(--bg-card); border:1px solid var(--border-strong); border-radius:8px; color:var(--text-secondary); font-size:12px; padding:5px 12px; cursor:pointer; transition:all .2s; white-space:nowrap; }
+.preset-btn:hover { background:var(--indigo-600); color:#fff; border-color:var(--indigo-600); }
+
 /* Bloqueos */
-.bloqueo-card { background:var(--bg-input); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.bloqueo-card { background:var(--bg-card); border:1px solid var(--border); border-radius:10px; padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .bloqueo-info { flex:1; min-width:0; }
 .bloqueo-titulo { font-size:14px; font-weight:600; color:var(--text-primary); margin-bottom:4px; }
-.bloqueo-det { font-size:12px; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:12px; margin-top:4px; }
+.bloqueo-det { font-size:12px; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px; margin-top:4px; }
 .bloqueo-det span { display:flex; align-items:center; gap:4px; }
-.scope-negocio { background:rgba(99,102,241,.18); color:#818cf8; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:600; }
-.scope-prof { background:rgba(245,158,11,.18); color:#fbbf24; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:600; }
+.scope-neg { background:rgba(99,102,241,.18); color:#818cf8; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:600; }
+.scope-pro { background:rgba(245,158,11,.18); color:#fbbf24; padding:1px 7px; border-radius:20px; font-size:11px; font-weight:600; }
 </style>
 </head>
 <body>
@@ -69,11 +102,11 @@ input[type=time]:focus { outline:none; border-color:var(--color-primary); }
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
         <div class="form-group">
           <label class="form-label">Fecha y hora inicio <span style="color:#ff8787">*</span></label>
-          <input type="datetime-local" id="bloqueo-inicio" class="form-control">
+          <input type="datetime-local" id="bloqueo-inicio" class="form-control" style="color-scheme:dark">
         </div>
         <div class="form-group">
           <label class="form-label">Fecha y hora fin <span style="color:#ff8787">*</span></label>
-          <input type="datetime-local" id="bloqueo-fin" class="form-control">
+          <input type="datetime-local" id="bloqueo-fin" class="form-control" style="color-scheme:dark">
         </div>
       </div>
       <div class="form-group">
@@ -98,17 +131,11 @@ input[type=time]:focus { outline:none; border-color:var(--color-primary); }
 <script>
 const DIAS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
-let usuarioActual = null;
-let rolActual = null;
-let negocioActual = null;
-let negocios = {};
-let todosLosProfesionales = [];
-let profsFiltradas = [];
-let profSeleccionada = null;
-let horarioData = {};
-let bloqueos = [];
+let usuarioActual = null, rolActual = null, negocioActual = null;
+let negocios = {}, todosProfesionales = [], horarioData = {}, bloqueos = [];
+let profSelId = null;
 
-// ── AUTH ─────────────────────────────────────────────────
+// ── AUTH ──────────────────────────────────────────────────
 auth.onAuthStateChanged(async user => {
   if (!user) { window.location.href = '../index.html'; return; }
   const snap = await db.collection('usuarios').doc(user.uid).get();
@@ -124,85 +151,78 @@ auth.onAuthStateChanged(async user => {
     rolLabel: rolActual === 'superadmin' ? 'Super Administrador' : 'Gerente',
   });
 
-  const cont = document.getElementById('page-content');
-  cont.innerHTML = buildHTML();
-
-  await cargarNegocios();
-  initUI();
+  document.getElementById('page-content').innerHTML = buildHTML();
+  await Promise.all([cargarNegocios(), cargarTodosProfesionales()]);
+  initSelects();
+  cargarBloqueos();
 });
 
 // ── HTML ──────────────────────────────────────────────────
 function buildHTML() {
   return `
-  <!-- Layout dos columnas igual que XAMPP -->
   <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
 
-    <!-- Columna izquierda: horarios semanales -->
+    <!-- HORARIOS -->
     <div class="card">
       <div class="card-header">
-        <div class="card-title"><i class="ti ti-clock" style="color:var(--color-primary)"></i> Horarios semanales</div>
+        <div class="card-title"><i class="ti ti-clock" style="color:var(--indigo-400)"></i> Horarios semanales</div>
       </div>
       <div class="card-body">
 
-        <!-- Selector negocio (solo superadmin) -->
         <div id="wrap-negocio" style="display:none;margin-bottom:16px">
-          <div class="prof-select-wrap">
-            <label>Negocio</label>
-            <select id="sel-negocio" onchange="onNegocioChange()">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Negocio</label>
+            <select id="sel-negocio" class="h-select" onchange="onNegocioChange()">
               <option value="">— Seleccioná un negocio —</option>
             </select>
           </div>
         </div>
 
-        <!-- Selector profesional -->
-        <div class="prof-select-wrap">
-          <label>Seleccioná un profesional</label>
-          <select id="sel-prof" onchange="onProfChange()">
-            <option value="">— Elegí un profesional —</option>
-          </select>
-          <button class="btn btn-primary btn-sm" onclick="guardarHorarios()" id="btn-guardar" style="display:none">
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:20px">
+          <div style="flex:1;min-width:200px;display:flex;flex-direction:column;gap:6px">
+            <label style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px">Seleccioná un profesional</label>
+            <select id="sel-prof" class="h-select" onchange="onProfChange()">
+              <option value="">— Elegí un profesional —</option>
+            </select>
+          </div>
+          <button id="btn-guardar" class="btn btn-primary" onclick="guardarHorarios()" style="display:none;white-space:nowrap">
             <i class="ti ti-device-floppy"></i> Guardar horarios
           </button>
         </div>
 
-        <!-- Presets (se muestran cuando hay prof seleccionada) -->
-        <div id="wrap-presets" style="display:none;margin-bottom:16px">
-          <div class="presets-bar">
-            <button class="preset-btn" onclick="aplicarPreset('lun-vie')">Lun–Vie</button>
-            <button class="preset-btn" onclick="aplicarPreset('lun-sab')">Lun–Sáb</button>
-            <button class="preset-btn" onclick="aplicarPreset('todos')">Todos</button>
-            <button class="preset-btn" onclick="aplicarPreset('ninguno')">Ninguno</button>
-            <button class="preset-btn" onclick="aplicarPreset('manana')">☀ Mañana 9–13</button>
-            <button class="preset-btn" onclick="aplicarPreset('tarde')">🌙 Tarde 14–20</button>
-          </div>
+        <div id="wrap-presets" style="display:none;display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+          <button class="preset-btn" onclick="aplicarPreset('lun-vie')">Lun – Vie</button>
+          <button class="preset-btn" onclick="aplicarPreset('lun-sab')">Lun – Sáb</button>
+          <button class="preset-btn" onclick="aplicarPreset('todos')">Todos</button>
+          <button class="preset-btn" onclick="aplicarPreset('ninguno')">Ninguno</button>
+          <button class="preset-btn" onclick="aplicarPreset('manana')">☀ Mañana 9–13</button>
+          <button class="preset-btn" onclick="aplicarPreset('tarde')">🌙 Tarde 14–20</button>
         </div>
 
-        <!-- Tabla de días -->
         <div id="horario-panel" style="display:none">
           <table class="horario-table">
             <thead>
               <tr>
-                <th style="width:130px">Día</th>
-                <th style="width:70px">Activo</th>
+                <th>Día</th>
+                <th>Activo</th>
                 <th>Hora inicio</th>
                 <th>Hora fin</th>
-                <th style="width:90px">Copiar</th>
+                <th></th>
               </tr>
             </thead>
             <tbody id="horario-tbody"></tbody>
           </table>
         </div>
 
-        <!-- Estado vacío -->
-        <div id="horario-empty" class="horario-empty">
-          <i class="ti ti-clock"></i>
-          <p>Seleccioná un profesional para configurar sus horarios.</p>
+        <div id="horario-empty" style="text-align:center;padding:48px 20px;color:var(--text-muted)">
+          <i class="ti ti-clock" style="font-size:42px;display:block;margin-bottom:10px;opacity:.3"></i>
+          <p style="font-size:14px;margin:0">Seleccioná un profesional para configurar sus horarios.</p>
         </div>
 
       </div>
     </div>
 
-    <!-- Columna derecha: bloqueos -->
+    <!-- BLOQUEOS -->
     <div class="card">
       <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
         <div class="card-title"><i class="ti ti-calendar-off"></i> Bloqueos</div>
@@ -210,8 +230,8 @@ function buildHTML() {
           <i class="ti ti-plus"></i> Nuevo
         </button>
       </div>
-      <div class="card-body" style="padding:0">
-        <div id="bloqueos-lista" style="display:flex;flex-direction:column;gap:10px;padding:16px">
+      <div class="card-body" style="padding:12px">
+        <div id="bloqueos-lista">
           <p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px 0">Sin bloqueos registrados.</p>
         </div>
       </div>
@@ -220,126 +240,125 @@ function buildHTML() {
   </div>`;
 }
 
-// ── INIT ──────────────────────────────────────────────────
+// ── DATOS ─────────────────────────────────────────────────
 async function cargarNegocios() {
   const snap = await db.collection('negocios').where('activo','==',true).get();
   snap.forEach(d => { negocios[d.id] = { id:d.id, ...d.data() }; });
 }
 
-function initUI() {
-  const selNeg = document.getElementById('sel-negocio');
-  const wrapNeg = document.getElementById('wrap-negocio');
-
-  if (rolActual === 'superadmin') {
-    wrapNeg.style.display = '';
-    Object.values(negocios).sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(n => {
-      selNeg.innerHTML += `<option value="${n.id}">${n.nombre}</option>`;
-    });
-    // Select negocio del modal
-    const selMB = document.getElementById('bloqueo-negocio');
-    Object.values(negocios).sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(n => {
-      selMB.innerHTML += `<option value="${n.id}">${n.nombre}</option>`;
-    });
-  } else {
-    // Gerente: pre-cargar su negocio
-    const neg = negocios[negocioActual];
-    const selMB = document.getElementById('bloqueo-negocio');
-    if (neg) selMB.innerHTML += `<option value="${neg.id}">${neg.nombre}</option>`;
-    cargarProfesionales(negocioActual);
-  }
-  cargarBloqueos();
+async function cargarTodosProfesionales() {
+  let q = db.collection('profesionales').where('activo','==',true);
+  if (negocioActual) q = q.where('negocio_id','==',negocioActual);
+  const snap = await q.get();
+  todosProfesionales = snap.docs.map(d => ({ id:d.id, ...d.data() }));
 }
 
-// ── PROFESIONALES ─────────────────────────────────────────
-async function onNegocioChange() {
+function initSelects() {
+  const selNeg = document.getElementById('sel-negocio');
+  const selProf = document.getElementById('sel-prof');
+  const selMBneg = document.getElementById('bloqueo-negocio');
+
+  if (rolActual === 'superadmin') {
+    document.getElementById('wrap-negocio').style.display = '';
+    Object.values(negocios).sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(n => {
+      selNeg.innerHTML += `<option value="${n.id}">${n.nombre}</option>`;
+      selMBneg.innerHTML += `<option value="${n.id}">${n.nombre}</option>`;
+    });
+    // Cargar todos los profesionales (de todos los negocios) en el select
+    llenarSelectProfs(todosProfesionales);
+  } else {
+    // Gerente: no muestra filtro de negocio, carga solo sus profes
+    const selMB = document.getElementById('bloqueo-negocio');
+    const neg = negocios[negocioActual];
+    if (neg) selMB.innerHTML += `<option value="${neg.id}">${neg.nombre}</option>`;
+    llenarSelectProfs(todosProfesionales);
+  }
+}
+
+function llenarSelectProfs(profs) {
+  const sel = document.getElementById('sel-prof');
+  sel.innerHTML = '<option value="">— Elegí un profesional —</option>';
+  profs.sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(p => {
+    const neg = negocios[p.negocio_id];
+    const label = rolActual === 'superadmin' && neg
+      ? `${p.nombre} · ${neg.nombre}`
+      : p.nombre;
+    sel.innerHTML += `<option value="${p.id}">${label}</option>`;
+  });
+}
+
+// ── FILTRO NEGOCIO (superadmin) ───────────────────────────
+function onNegocioChange() {
   const negId = document.getElementById('sel-negocio').value;
-  document.getElementById('sel-prof').innerHTML = '<option value="">— Elegí un profesional —</option>';
-  profSeleccionada = null;
-  horarioData = {};
+  const filtrados = negId
+    ? todosProfesionales.filter(p => p.negocio_id === negId)
+    : todosProfesionales;
+  llenarSelectProfs(filtrados);
+  document.getElementById('sel-prof').value = '';
+  limpiarHorario();
+}
+
+// ── PROFESIONAL ───────────────────────────────────────────
+async function onProfChange() {
+  profSelId = document.getElementById('sel-prof').value;
+  if (!profSelId) { limpiarHorario(); return; }
+  await cargarHorario();
+}
+
+function limpiarHorario() {
+  profSelId = null; horarioData = {};
   document.getElementById('horario-panel').style.display = 'none';
   document.getElementById('horario-empty').style.display = '';
   document.getElementById('wrap-presets').style.display = 'none';
   document.getElementById('btn-guardar').style.display = 'none';
-  if (!negId) return;
-  await cargarProfesionales(negId);
-}
-
-async function cargarProfesionales(negId) {
-  if (!negId) return;
-  const snap = await db.collection('profesionales').where('negocio_id','==',negId).where('activo','==',true).get();
-  profsFiltradas = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-  const sel = document.getElementById('sel-prof');
-  sel.innerHTML = '<option value="">— Elegí un profesional —</option>';
-  profsFiltradas.forEach(p => {
-    sel.innerHTML += `<option value="${p.id}">${p.nombre}</option>`;
-  });
-}
-
-async function onProfChange() {
-  const profId = document.getElementById('sel-prof').value;
-  if (!profId) {
-    profSeleccionada = null;
-    document.getElementById('horario-panel').style.display = 'none';
-    document.getElementById('horario-empty').style.display = '';
-    document.getElementById('wrap-presets').style.display = 'none';
-    document.getElementById('btn-guardar').style.display = 'none';
-    return;
-  }
-  profSeleccionada = profsFiltradas.find(p => p.id === profId);
-  await cargarHorario();
 }
 
 // ── HORARIO ───────────────────────────────────────────────
 async function cargarHorario() {
-  if (!profSeleccionada) return;
   horarioData = {};
-  const snap = await db.collection('horarios').where('profesional_id','==',profSeleccionada.id).get();
-  snap.forEach(d => {
-    const data = d.data();
-    horarioData[data.dia_semana] = { docId: d.id, ...data };
-  });
+  const snap = await db.collection('horarios').where('profesional_id','==',profSelId).get();
+  snap.forEach(d => { const data = d.data(); horarioData[data.dia_semana] = { docId:d.id, ...data }; });
   renderTabla();
   document.getElementById('horario-panel').style.display = '';
   document.getElementById('horario-empty').style.display = 'none';
-  document.getElementById('wrap-presets').style.display = '';
+  document.getElementById('wrap-presets').style.removeProperty('display');
   document.getElementById('btn-guardar').style.display = '';
 }
 
 function renderTabla() {
-  const tbody = document.getElementById('horario-tbody');
-  tbody.innerHTML = '';
-  for (let d = 0; d < 7; d++) {
-    const h = horarioData[d] || { activo: false, hora_inicio: '09:00', hora_fin: '18:00' };
-    const activo = h.activo ?? false;
-    tbody.innerHTML += `
-    <tr>
-      <td><div class="dia-label">
-        <span class="dia-badge ${activo?'':'inactivo'}" id="badge-${d}"></span>
-        <strong>${DIAS[d]}</strong>
+  document.getElementById('horario-tbody').innerHTML = Array.from({length:7},(_,d) => {
+    const h = horarioData[d] || { activo:false, hora_inicio:'09:00', hora_fin:'18:00' };
+    const ok = h.activo ?? false;
+    return `<tr>
+      <td><div style="display:flex;align-items:center;gap:8px">
+        <span class="dia-dot${ok?'':' off'}" id="dot-${d}"></span>
+        <strong style="color:var(--text-primary);font-size:14px">${DIAS[d]}</strong>
       </div></td>
       <td><label class="toggle-dia">
-        <input type="checkbox" id="activo-${d}" ${activo?'checked':''} onchange="onToggle(${d})">
+        <input type="checkbox" id="activo-${d}" ${ok?'checked':''} onchange="onToggle(${d})">
         <span class="toggle-slider"></span>
       </label></td>
-      <td><input type="time" id="inicio-${d}" value="${h.hora_inicio||'09:00'}" ${!activo?'disabled':''}></td>
-      <td><input type="time" id="fin-${d}" value="${h.hora_fin||'18:00'}" ${!activo?'disabled':''}></td>
-      <td><button class="btn btn-ghost btn-sm" onclick="copiarDia(${d})" title="Copiar a días activos"><i class="ti ti-copy"></i></button></td>
+      <td><input type="time" class="h-time" id="inicio-${d}" value="${h.hora_inicio||'09:00'}" ${!ok?'disabled':''}></td>
+      <td><input type="time" class="h-time" id="fin-${d}" value="${h.hora_fin||'18:00'}" ${!ok?'disabled':''}></td>
+      <td><button class="btn btn-ghost btn-sm" onclick="copiarDia(${d})" title="Copiar a días activos">
+        <i class="ti ti-copy"></i>
+      </button></td>
     </tr>`;
-  }
+  }).join('');
 }
 
 function onToggle(d) {
   const ok = document.getElementById('activo-'+d).checked;
   document.getElementById('inicio-'+d).disabled = !ok;
   document.getElementById('fin-'+d).disabled = !ok;
-  document.getElementById('badge-'+d).classList.toggle('inactivo', !ok);
+  document.getElementById('dot-'+d).classList.toggle('off', !ok);
 }
 
 function copiarDia(d) {
   const ini = document.getElementById('inicio-'+d).value;
   const fin = document.getElementById('fin-'+d).value;
-  for (let i = 0; i < 7; i++) {
-    if (i === d) continue;
+  for (let i=0;i<7;i++) {
+    if (i===d) continue;
     if (document.getElementById('activo-'+i).checked) {
       document.getElementById('inicio-'+i).value = ini;
       document.getElementById('fin-'+i).value = fin;
@@ -350,162 +369,156 @@ function copiarDia(d) {
 
 function aplicarPreset(p) {
   const mapa = {
-    'lun-vie': [false,true,true,true,true,true,false],
-    'lun-sab': [false,true,true,true,true,true,true],
-    'todos':   [true,true,true,true,true,true,true],
-    'ninguno': [false,false,false,false,false,false,false],
+    'lun-vie':[false,true,true,true,true,true,false],
+    'lun-sab':[false,true,true,true,true,true,true],
+    'todos':  [true,true,true,true,true,true,true],
+    'ninguno':[false,false,false,false,false,false,false],
   };
-  if (p === 'manana' || p === 'tarde') {
-    const ini = p==='manana'?'09:00':'14:00', fin = p==='manana'?'13:00':'20:00';
-    for (let d=0;d<7;d++) {
-      if (document.getElementById('activo-'+d).checked) {
-        document.getElementById('inicio-'+d).value = ini;
-        document.getElementById('fin-'+d).value = fin;
-      }
+  if (p==='manana'||p==='tarde') {
+    const ini=p==='manana'?'09:00':'14:00', fin=p==='manana'?'13:00':'20:00';
+    for (let d=0;d<7;d++) if (document.getElementById('activo-'+d).checked) {
+      document.getElementById('inicio-'+d).value=ini;
+      document.getElementById('fin-'+d).value=fin;
     }
-    Toast.info('Horario aplicado a días activos');
+    Toast.info('Horario aplicado');
     return;
   }
-  mapa[p].forEach((v,d) => {
-    document.getElementById('activo-'+d).checked = v;
-    onToggle(d);
-  });
+  mapa[p].forEach((v,d)=>{ document.getElementById('activo-'+d).checked=v; onToggle(d); });
   Toast.info('Preset aplicado');
 }
 
 async function guardarHorarios() {
-  if (!profSeleccionada) return;
+  if (!profSelId) return;
+  const prof = todosProfesionales.find(p=>p.id===profSelId);
   for (let d=0;d<7;d++) {
-    const activo = document.getElementById('activo-'+d).checked;
-    const ini = document.getElementById('inicio-'+d).value;
-    const fin = document.getElementById('fin-'+d).value;
-    if (activo && ini >= fin) { Toast.error(`${DIAS[d]}: hora inicio debe ser menor a hora fin`); return; }
+    const ok=document.getElementById('activo-'+d).checked;
+    const ini=document.getElementById('inicio-'+d).value;
+    const fin=document.getElementById('fin-'+d).value;
+    if (ok && ini>=fin) { Toast.error(`${DIAS[d]}: inicio debe ser menor a fin`); return; }
   }
   try {
     const batch = db.batch();
     for (let d=0;d<7;d++) {
-      const activo = document.getElementById('activo-'+d).checked;
-      const hora_inicio = document.getElementById('inicio-'+d).value;
-      const hora_fin = document.getElementById('fin-'+d).value;
-      const existing = horarioData[d];
+      const activo=document.getElementById('activo-'+d).checked;
+      const hora_inicio=document.getElementById('inicio-'+d).value;
+      const hora_fin=document.getElementById('fin-'+d).value;
+      const existing=horarioData[d];
       if (existing?.docId) {
-        batch.update(db.collection('horarios').doc(existing.docId), { activo, hora_inicio, hora_fin });
+        batch.update(db.collection('horarios').doc(existing.docId),{activo,hora_inicio,hora_fin});
       } else {
-        batch.set(db.collection('horarios').doc(), {
-          profesional_id: profSeleccionada.id,
-          negocio_id: profSeleccionada.negocio_id,
-          dia_semana: d, activo, hora_inicio, hora_fin
+        batch.set(db.collection('horarios').doc(),{
+          profesional_id:profSelId, negocio_id:prof?.negocio_id||'',
+          dia_semana:d, activo, hora_inicio, hora_fin
         });
       }
     }
     await batch.commit();
     Toast.success('Horarios guardados correctamente');
     await cargarHorario();
-  } catch(e) { Toast.error('Error: ' + e.message); }
+  } catch(e) { Toast.error('Error: '+e.message); }
 }
 
 // ── BLOQUEOS ──────────────────────────────────────────────
 async function cargarBloqueos() {
-  let q = db.collection('bloqueos').orderBy('fecha_inicio','desc');
-  if (negocioActual) q = q.where('negocio_id','==',negocioActual);
   try {
+    let q = db.collection('bloqueos').orderBy('fecha_inicio','desc');
+    if (negocioActual) q = q.where('negocio_id','==',negocioActual);
     const snap = await q.get();
-    bloqueos = snap.docs.map(d => ({ id:d.id, ...d.data() }));
-  } catch(e) { bloqueos = []; }
+    bloqueos = snap.docs.map(d=>({id:d.id,...d.data()}));
+  } catch(e) { bloqueos=[]; }
   renderBloqueos();
 }
 
 function renderBloqueos() {
   const lista = document.getElementById('bloqueos-lista');
   if (!bloqueos.length) {
-    lista.innerHTML = `<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px 0">Sin bloqueos registrados.</p>`;
+    lista.innerHTML=`<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px 0">Sin bloqueos registrados.</p>`;
     return;
   }
-  const now = new Date();
-  lista.innerHTML = bloqueos.map(b => {
-    const neg = negocios[b.negocio_id];
-    const ini = b.fecha_inicio?.toDate ? b.fecha_inicio.toDate() : new Date(b.fecha_inicio);
-    const fin = b.fecha_fin?.toDate ? b.fecha_fin.toDate() : new Date(b.fecha_fin);
-    const pasado = fin < now;
-    const fmt = d => d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) + ' ' + d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+  const now=new Date();
+  lista.innerHTML=`<div style="display:flex;flex-direction:column;gap:10px">`+bloqueos.map(b=>{
+    const neg=negocios[b.negocio_id];
+    const ini=b.fecha_inicio?.toDate?b.fecha_inicio.toDate():new Date(b.fecha_inicio);
+    const fin=b.fecha_fin?.toDate?b.fecha_fin.toDate():new Date(b.fecha_fin);
+    const pasado=fin<now;
+    const fmt=d=>d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
     return `<div class="bloqueo-card" style="${pasado?'opacity:.5':''}">
       <div class="bloqueo-info">
         <div class="bloqueo-titulo">${b.motivo||'Sin motivo'}</div>
         <div class="bloqueo-det">
-          <span><i class="ti ti-calendar"></i> ${fmt(ini)}</span>
-          <span><i class="ti ti-arrow-right"></i> ${fmt(fin)}</span>
-          ${neg?`<span><i class="ti ti-building"></i> ${neg.nombre}</span>`:''}
+          <span><i class="ti ti-calendar"></i>${fmt(ini)} → ${fmt(fin)}</span>
+          ${neg?`<span><i class="ti ti-building"></i>${neg.nombre}</span>`:''}
           ${b.profesional_id
-            ? `<span class="scope-prof"><i class="ti ti-user"></i> Profesional</span>`
-            : `<span class="scope-negocio"><i class="ti ti-building"></i> Todo el negocio</span>`}
+            ?`<span class="scope-pro"><i class="ti ti-user"></i>Profesional</span>`
+            :`<span class="scope-neg"><i class="ti ti-building"></i>Todo el negocio</span>`}
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0">
         <button class="btn btn-ghost btn-sm" onclick="editarBloqueo('${b.id}')"><i class="ti ti-pencil"></i></button>
-        <button class="btn btn-danger btn-sm" onclick="eliminarBloqueo('${b.id}','${(b.motivo||'bloqueo').replace(/'/g,'&apos;')}')"><i class="ti ti-trash"></i></button>
+        <button class="btn btn-danger btn-sm" onclick="eliminarBloqueo('${b.id}','${(b.motivo||'bloqueo').replace(/'/g,"\\'")}')"><i class="ti ti-trash"></i></button>
       </div>
     </div>`;
-  }).join('');
+  }).join('')+`</div>`;
 }
 
 async function cargarProfsBloqueo() {
-  const negId = document.getElementById('bloqueo-negocio').value;
-  const sel = document.getElementById('bloqueo-prof');
-  sel.innerHTML = '<option value="">— Todo el negocio —</option>';
+  const negId=document.getElementById('bloqueo-negocio').value;
+  const sel=document.getElementById('bloqueo-prof');
+  sel.innerHTML='<option value="">— Todo el negocio —</option>';
   if (!negId) return;
-  const snap = await db.collection('profesionales').where('negocio_id','==',negId).where('activo','==',true).get();
-  snap.forEach(d => { sel.innerHTML += `<option value="${d.id}">${d.data().nombre}</option>`; });
+  const snap=await db.collection('profesionales').where('negocio_id','==',negId).where('activo','==',true).get();
+  snap.forEach(d=>{ sel.innerHTML+=`<option value="${d.id}">${d.data().nombre}</option>`; });
 }
 
 function abrirModalBloqueo() {
-  document.getElementById('bloqueo-id').value = '';
-  document.getElementById('bloqueo-negocio').value = negocioActual || '';
-  document.getElementById('bloqueo-prof').innerHTML = '<option value="">— Todo el negocio —</option>';
-  document.getElementById('bloqueo-inicio').value = '';
-  document.getElementById('bloqueo-fin').value = '';
-  document.getElementById('bloqueo-motivo').value = '';
-  document.getElementById('modal-bloqueo-titulo').textContent = 'Nuevo bloqueo';
+  document.getElementById('bloqueo-id').value='';
+  document.getElementById('bloqueo-negocio').value=negocioActual||'';
+  document.getElementById('bloqueo-prof').innerHTML='<option value="">— Todo el negocio —</option>';
+  document.getElementById('bloqueo-inicio').value='';
+  document.getElementById('bloqueo-fin').value='';
+  document.getElementById('bloqueo-motivo').value='';
+  document.getElementById('modal-bloqueo-titulo').textContent='Nuevo bloqueo';
   if (negocioActual) cargarProfsBloqueo();
   Modal.open('modal-bloqueo');
 }
 
 async function editarBloqueo(id) {
-  const snap = await db.collection('bloqueos').doc(id).get();
+  const snap=await db.collection('bloqueos').doc(id).get();
   if (!snap.exists) return;
-  const b = snap.data();
-  document.getElementById('bloqueo-id').value = id;
-  document.getElementById('bloqueo-negocio').value = b.negocio_id||'';
+  const b=snap.data();
+  document.getElementById('bloqueo-id').value=id;
+  document.getElementById('bloqueo-negocio').value=b.negocio_id||'';
   await cargarProfsBloqueo();
-  document.getElementById('bloqueo-prof').value = b.profesional_id||'';
-  const toLocal = ts => { const d = ts?.toDate?ts.toDate():new Date(ts); return d.toISOString().slice(0,16); };
-  document.getElementById('bloqueo-inicio').value = toLocal(b.fecha_inicio);
-  document.getElementById('bloqueo-fin').value = toLocal(b.fecha_fin);
-  document.getElementById('bloqueo-motivo').value = b.motivo||'';
-  document.getElementById('modal-bloqueo-titulo').textContent = 'Editar bloqueo';
+  document.getElementById('bloqueo-prof').value=b.profesional_id||'';
+  const toLocal=ts=>{const d=ts?.toDate?ts.toDate():new Date(ts);return d.toISOString().slice(0,16);};
+  document.getElementById('bloqueo-inicio').value=toLocal(b.fecha_inicio);
+  document.getElementById('bloqueo-fin').value=toLocal(b.fecha_fin);
+  document.getElementById('bloqueo-motivo').value=b.motivo||'';
+  document.getElementById('modal-bloqueo-titulo').textContent='Editar bloqueo';
   Modal.open('modal-bloqueo');
 }
 
 async function guardarBloqueo() {
-  const id = document.getElementById('bloqueo-id').value;
-  const negocio_id = document.getElementById('bloqueo-negocio').value;
-  const profesional_id = document.getElementById('bloqueo-prof').value;
-  const fecha_inicio = document.getElementById('bloqueo-inicio').value;
-  const fecha_fin = document.getElementById('bloqueo-fin').value;
-  const motivo = document.getElementById('bloqueo-motivo').value.trim();
+  const id=document.getElementById('bloqueo-id').value;
+  const negocio_id=document.getElementById('bloqueo-negocio').value;
+  const profesional_id=document.getElementById('bloqueo-prof').value;
+  const fecha_inicio=document.getElementById('bloqueo-inicio').value;
+  const fecha_fin=document.getElementById('bloqueo-fin').value;
+  const motivo=document.getElementById('bloqueo-motivo').value.trim();
   if (!negocio_id) { Toast.error('Seleccioná un negocio'); return; }
-  if (!fecha_inicio || !fecha_fin) { Toast.error('Completá las fechas'); return; }
-  if (fecha_inicio >= fecha_fin) { Toast.error('Inicio debe ser menor a fin'); return; }
+  if (!fecha_inicio||!fecha_fin) { Toast.error('Completá las fechas'); return; }
+  if (fecha_inicio>=fecha_fin) { Toast.error('Inicio debe ser menor a fin'); return; }
   try {
-    const data = { negocio_id, profesional_id: profesional_id||null, fecha_inicio: new Date(fecha_inicio), fecha_fin: new Date(fecha_fin), motivo: motivo||null };
+    const data={negocio_id,profesional_id:profesional_id||null,fecha_inicio:new Date(fecha_inicio),fecha_fin:new Date(fecha_fin),motivo:motivo||null};
     if (id) { await db.collection('bloqueos').doc(id).update(data); Toast.success('Bloqueo actualizado'); }
-    else { data.creado_en = new Date(); await db.collection('bloqueos').add(data); Toast.success('Bloqueo creado'); }
+    else { data.creado_en=new Date(); await db.collection('bloqueos').add(data); Toast.success('Bloqueo creado'); }
     Modal.close('modal-bloqueo');
     cargarBloqueos();
-  } catch(e) { Toast.error('Error: ' + e.message); }
+  } catch(e) { Toast.error('Error: '+e.message); }
 }
 
 async function eliminarBloqueo(id, motivo) {
-  confirmar(`¿Eliminar "${motivo}"?`, async () => {
+  confirmar(`¿Eliminar "${motivo}"?`, async ()=>{
     await db.collection('bloqueos').doc(id).delete();
     Toast.success('Bloqueo eliminado');
     cargarBloqueos();
