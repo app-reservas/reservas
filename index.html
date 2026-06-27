@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ingresar — ReservaSystem</title>
+  <link rel="stylesheet" href="assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <style>
+    body { display:flex; align-items:center; justify-content:center; padding:20px; }
+    .auth-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius-xl); padding:32px; width:100%; max-width:380px; }
+    .auth-logo { display:flex; flex-direction:column; align-items:center; gap:10px; margin-bottom:24px; }
+    .auth-logo .logo-icon { width:52px; height:52px; background:var(--indigo-600); border-radius:var(--radius-lg); display:flex; align-items:center; justify-content:center; font-size:26px; color:#fff; }
+    .auth-logo h1 { font-size:18px; font-weight:700; color:var(--text-primary); }
+    .auth-tabs { display:flex; gap:4px; margin-bottom:22px; background:var(--bg-surface); border-radius:var(--radius-md); padding:4px; }
+    .tab-btn { flex:1; padding:9px; text-align:center; border-radius:var(--radius-sm); background:none; border:none; color:var(--text-secondary); font-size:13px; font-weight:600; cursor:pointer; transition:all var(--ease); }
+    .tab-btn.active { background:var(--indigo-600); color:#fff; }
+    .tab-content.hidden { display:none; }
+    .msg-error { background:rgba(224,49,49,0.15); color:#ff8787; border:1px solid rgba(224,49,49,0.3); border-radius:var(--radius-md); padding:10px 12px; font-size:12px; margin-bottom:14px; }
+    .msg-ok { background:rgba(47,158,68,0.15); color:#69db7c; border:1px solid rgba(47,158,68,0.3); border-radius:var(--radius-md); padding:10px 12px; font-size:12px; margin-bottom:14px; }
+    .info-text { font-size:12px; color:var(--text-muted); margin-bottom:16px; line-height:1.5; }
+  </style>
+</head>
+<body>
+
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="logo-icon"><i class="ti ti-calendar-event"></i></div>
+      <h1>ReservaSystem</h1>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="tab-btn active" data-tab="login">Ingresar</button>
+      <button class="tab-btn" data-tab="registro">Registrarse</button>
+    </div>
+
+    <div class="tab-content" id="tab-login">
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="login-email" class="form-control" placeholder="admin@ejemplo.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contraseña</label>
+        <input type="password" id="login-pass" class="form-control" placeholder="••••••••">
+      </div>
+      <div id="login-error" class="msg-error hidden" style="display:none"></div>
+      <button class="btn btn-primary full" id="btn-login" style="width:100%;justify-content:center">Ingresar</button>
+    </div>
+
+    <div class="tab-content hidden" id="tab-registro">
+      <p class="info-text">El registro crea una cuenta de <strong>gerente</strong>. El superadmin deberá asignarte un negocio.</p>
+      <div class="form-group">
+        <label class="form-label">Nombre completo</label>
+        <input type="text" id="reg-nombre" class="form-control" placeholder="Juan García">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email</label>
+        <input type="email" id="reg-email" class="form-control" placeholder="tu@email.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Teléfono</label>
+        <input type="tel" id="reg-telefono" class="form-control" placeholder="+54 9 351 ...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contraseña</label>
+        <input type="password" id="reg-pass" class="form-control" placeholder="Mínimo 6 caracteres">
+      </div>
+      <div id="reg-error" class="msg-error hidden" style="display:none"></div>
+      <div id="reg-ok" class="msg-ok hidden" style="display:none"></div>
+      <button class="btn btn-primary full" id="btn-registro" style="width:100%;justify-content:center">Crear cuenta</button>
+    </div>
+  </div>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="assets/js/firebase-config.js"></script>
+  <script>
+    // ── TABS ──────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.remove('hidden');
+      });
+    });
+
+    function showError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = ''; }
+    function hideMsg(id) { document.getElementById(id).style.display = 'none'; }
+
+    function tradError(code) {
+      const map = {
+        'auth/invalid-email': 'Email inválido.',
+        'auth/user-not-found': 'No existe una cuenta con ese email.',
+        'auth/wrong-password': 'Contraseña incorrecta.',
+        'auth/invalid-credential': 'Email o contraseña incorrectos.',
+        'auth/email-already-in-use': 'Ese email ya está registrado.',
+        'auth/weak-password': 'La contraseña es muy débil.',
+      };
+      return map[code] || 'Ocurrió un error. Intentá de nuevo.';
+    }
+
+    // ── REDIRIGIR SI YA ESTÁ LOGUEADO ────────────────────
+    auth.onAuthStateChanged(async user => {
+      if (!user) return;
+      const snap = await db.collection('usuarios').doc(user.uid).get();
+      if (!snap.exists) return;
+      const u = snap.data();
+      if (u.activo === false) {
+        await auth.signOut();
+        showError('login-error', 'Tu cuenta está pendiente de aprobación.');
+        return;
+      }
+      if (u.rol === 'superadmin') { location.href = 'admin/dashboard.html'; return; }
+      if (u.rol === 'gerente')    { location.href = 'gerente/dashboard.html'; return; }
+    });
+
+    // ── LOGIN ─────────────────────────────────────────────
+    document.getElementById('btn-login').addEventListener('click', async () => {
+      const email = document.getElementById('login-email').value.trim();
+      const pass  = document.getElementById('login-pass').value;
+      hideMsg('login-error');
+      if (!email || !pass) { showError('login-error', 'Completá todos los campos.'); return; }
+      try {
+        await auth.signInWithEmailAndPassword(email, pass);
+      } catch(e) {
+        showError('login-error', tradError(e.code));
+      }
+    });
+
+    // ── REGISTRO ──────────────────────────────────────────
+    document.getElementById('btn-registro').addEventListener('click', async () => {
+      const nombre   = document.getElementById('reg-nombre').value.trim();
+      const email    = document.getElementById('reg-email').value.trim();
+      const telefono = document.getElementById('reg-telefono').value.trim();
+      const pass     = document.getElementById('reg-pass').value;
+      hideMsg('reg-error'); hideMsg('reg-ok');
+      if (!nombre || !email || !pass) { showError('reg-error', 'Completá nombre, email y contraseña.'); return; }
+      if (pass.length < 6)            { showError('reg-error', 'La contraseña debe tener al menos 6 caracteres.'); return; }
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, pass);
+        await db.collection('usuarios').doc(cred.user.uid).set({
+          nombre, email, telefono,
+          rol: 'gerente',
+          negocio_id: null,
+          activo: false,
+          creado_en: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        await auth.signOut();
+        document.getElementById('reg-ok').textContent = '✅ Cuenta creada. Esperá que el administrador la active.';
+        document.getElementById('reg-ok').style.display = '';
+      } catch(e) {
+        showError('reg-error', tradError(e.code));
+      }
+    });
+  </script>
+</body>
+</html>
