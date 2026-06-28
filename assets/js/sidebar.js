@@ -46,9 +46,10 @@ const NAV_GERENTE = [
     { href: 'notificaciones.html', icon: 'ti-bell',      label: 'Notificaciones', badge: 'notificaciones' },
   ]},
   { seccion: 'Sistema', items: [
-    { href: 'pagos.html',         icon: 'ti-credit-card', label: 'Pagos / CBU' },
-    { href: 'extras.html',        icon: 'ti-settings-2',  label: 'Extras' },
-    { href: 'configuracion.html', icon: 'ti-settings',    label: 'Configuración' },
+    { href: 'pagos.html',          icon: 'ti-credit-card',    label: 'Pagos / CBU' },
+    { href: 'devoluciones.html',   icon: 'ti-receipt-refund', label: 'Devoluciones' },
+    { href: 'extras.html',         icon: 'ti-settings-2',     label: 'Extras' },
+    { href: 'configuracion.html',  icon: 'ti-settings',       label: 'Configuración' },
   ]},
 ];
 
