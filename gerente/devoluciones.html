@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Devoluciones — ReservaSystem</title>
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js"></script>
+  <script src="../assets/js/app.js"></script>
+
+  <script>
+    let NEGOCIO_ID = '';
+    let NEGOCIO_ACTUAL = null;
+    let RESERVAS_DEVOLVIBLES = [];
+    let DEVOLUCIONES = [];
+
+    auth.onAuthStateChanged(async user => {
+      if (!user) { window.location.href = '../index.html'; return; }
+      const snap = await db.collection('usuarios').doc(user.uid).get();
+      if (!snap.exists || !snap.data().activo) { auth.signOut(); window.location.href = '../index.html'; return; }
+      const usuario = { uid: user.uid, ...snap.data() };
+      NEGOCIO_ID = usuario.negocio_id || '';
+
+      // Cargar negocio
+      try {
+        const negSnap = await db.collection('negocios').doc(NEGOCIO_ID).get();
+        NEGOCIO_ACTUAL = negSnap.exists ? { id: negSnap.id, ...negSnap.data() } : null;
+      } catch(e) { NEGOCIO_ACTUAL = null; }
+
+      renderLayoutAdmin({
+        titulo: 'Devoluciones',
+        subtitulo: 'Gestión de reintegros y cancelaciones',
+        nombreUsuario: usuario.nombre,
+        rolLabel: 'Gerente',
+        rol: 'gerente',
+        negocio: NEGOCIO_ACTUAL,
+      });
+
+      document.getElementById('page-content').innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+      await cargarDatos();
+    });
+
+    async function cargarDatos() {
+      try {
+        // Traer todas las reservas del negocio y filtrar en cliente
+        const resSnap = await db.collection('reservas').where('negocio_id','==',NEGOCIO_ID).get();
+        RESERVAS_DEVOLVIBLES = [];
+        resSnap.forEach(d => {
+          const r = d.data();
+          if (['pendiente','confirmada','pendiente_pago','completada'].includes(r.estado) && (r.precio_cobrado||0) > 0) {
+            RESERVAS_DEVOLVIBLES.push({ id: d.id, ...r });
+          }
+        });
+        // Ordenar por fecha desc
+        RESERVAS_DEVOLVIBLES.sort((a,b) => (b.fecha||'').localeCompare(a.fecha||''));
+
+        // Traer devoluciones
+        const devSnap = await db.collection('devoluciones').where('negocio_id','==',NEGOCIO_ID).get();
+        DEVOLUCIONES = [];
+        devSnap.forEach(d => DEVOLUCIONES.push({ id: d.id, ...d.data() }));
+        DEVOLUCIONES.sort((a,b) => (b.creado_en||'').localeCompare(a.creado_en||''));
+      } catch(e) {
+        console.error('Error cargando datos:', e);
+      }
+      renderPagina();
+    }
+
+    function renderPagina() {
+      const pendientes   = DEVOLUCIONES.filter(d => d.estado === 'pendiente');
+      const completadas  = DEVOLUCIONES.filter(d => d.estado === 'completada');
+      const historial    = DEVOLUCIONES.filter(d => d.estado !== 'pendiente');
+      const totalMonto   = completadas.reduce((s,d) => s+(d.monto||0), 0);
+
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `
+      <!-- KPIs -->
+      <div class="kpi-grid mb-6" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-card">
+          <div class="kpi-icon amber"><i class="ti ti-clock"></i></div>
+          <div>
+            <div class="kpi-value">${pendientes.length}</div>
+            <div class="kpi-label">Pendientes de completar</div>
+            ${pendientes.length > 0 ? '<div class="kpi-trend down">⚠ Requieren atención</div>' : ''}
+          </div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green"><i class="ti ti-check"></i></div>
+          <div><div class="kpi-value">${completadas.length}</div><div class="kpi-label">Devoluciones completadas</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon red"><i class="ti ti-currency-dollar"></i></div>
+          <div><div class="kpi-value">$${totalMonto.toLocaleString('es-AR')}</div><div class="kpi-label">Total devuelto</div></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:flex-start">
+
+        <!-- COLUMNA IZQ -->
+        <div>
+          ${pendientes.length > 0 ? renderPendientes(pendientes) : `
+          <div class="card mb-4">
+            <div style="text-align:center;padding:40px;color:var(--text-muted)">
+              <i class="ti ti-mood-happy" style="font-size:44px;display:block;margin-bottom:12px;opacity:0.25;color:#69db7c"></i>
+              <div style="font-size:16px;font-weight:600">Sin devoluciones pendientes</div>
+              <div style="font-size:13px;margin-top:4px">Todo en orden por ahora.</div>
+            </div>
+          </div>`}
+
+          ${historial.length > 0 ? renderHistorial(historial) : ''}
+        </div>
+
+        <!-- FORMULARIO NUEVA DEVOLUCIÓN -->
+        <div class="card" style="position:sticky;top:80px">
+          <div class="card-title" style="margin-bottom:14px"><i class="ti ti-receipt-refund" style="color:#ff8787"></i> Nueva devolución</div>
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">
+            Seleccioná la reserva, completá el motivo y el monto. La reserva se cancelará automáticamente.
+          </p>
+
+          <div class="form-group">
+            <label class="form-label">Reserva *</label>
+            <select id="sel-reserva" class="form-control" onchange="cargarDatosReserva(this)">
+              <option value="">— Elegí una reserva —</option>
+              ${RESERVAS_DEVOLVIBLES.map(r => `
+                <option value="${r.id}"
+                  data-monto="${r.precio_cobrado||0}"
+                  data-cliente="${limpiar(r.cliente_nombre||'')}"
+                  data-servicio="${limpiar(r.servicio_nombre||'')}"
+                  data-fecha="${r.fecha||''} ${(r.hora_inicio||'').slice(0,5)}">
+                  ${limpiar(r.cliente_nombre||'?')} — ${limpiar(r.servicio_nombre||'?')} (${r.fecha||''})
+                </option>`).join('')}
+            </select>
+          </div>
+
+          <div id="preview-reserva" style="display:none;padding:10px;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border);margin-bottom:12px;font-size:13px">
+            <div id="prev-cliente" style="font-weight:700"></div>
+            <div id="prev-servicio" style="color:var(--text-muted);font-size:12px"></div>
+            <div id="prev-fecha" style="color:var(--indigo-300);font-size:12px"></div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Monto a devolver ($) *</label>
+            <input type="number" id="inp-monto" class="form-control" min="0" step="0.01" placeholder="0.00">
+            <small style="color:var(--text-muted)">Podés devolver el total o solo una parte</small>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Motivo *</label>
+            <textarea id="inp-motivo" class="form-control" rows="2" placeholder="Ej: Cliente no puede asistir..."></textarea>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Cómo se devuelve</label>
+            <select id="inp-metodo" class="form-control">
+              <option value="">— Sin especificar —</option>
+              <option value="Transferencia bancaria">Transferencia bancaria</option>
+              <option value="Efectivo en el local">Efectivo en el local</option>
+              <option value="Mercado Pago">Mercado Pago</option>
+              <option value="Otro">Otro</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Notas internas <span style="color:var(--text-muted)">(opcional)</span></label>
+            <input type="text" id="inp-notas" class="form-control" placeholder="Solo visible para el equipo">
+          </div>
+
+          <button onclick="registrarDevolucion()" class="btn btn-primary" style="width:100%;background:rgba(224,49,49,0.2);border-color:rgba(224,49,49,0.4);color:#ff8787">
+            <i class="ti ti-receipt-refund"></i> Registrar devolución
+          </button>
+        </div>
+      </div>`;
+    }
+
+    function renderPendientes(lista) {
+      return `
+      <div class="card mb-4" style="border-color:rgba(245,159,0,0.4);background:rgba(245,159,0,0.03)">
+        <div class="card-title" style="color:#ffd43b;margin-bottom:14px"><i class="ti ti-alert-circle"></i> Devoluciones pendientes (${lista.length})</div>
+        ${lista.map(d => `
+        <div style="padding:14px;border-radius:10px;border:1px solid var(--border);background:var(--bg-surface);margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px">
+            <div>
+              <div style="font-weight:700;font-size:15px">${limpiar(d.cliente_nombre||'—')}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${limpiar(d.cliente_email||'')}</div>
+              ${d.motivo ? `<div style="font-size:12px;color:var(--text-secondary);margin-top:6px;padding:6px 10px;background:rgba(255,135,135,0.07);border-radius:6px;border-left:3px solid #ff878780">
+                <i class="ti ti-message" style="font-size:11px"></i> ${limpiar(d.motivo)}
+              </div>` : ''}
+            </div>
+            <div style="text-align:right">
+              <div style="font-size:22px;font-weight:800;color:#ff8787">-$${(d.monto||0).toLocaleString('es-AR')}</div>
+              ${d.metodo_devolucion ? `<div style="font-size:11px;color:var(--text-muted)">${limpiar(d.metodo_devolucion)}</div>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onclick="completarDevolucion('${d.id}')" class="btn btn-primary" style="flex:1;background:rgba(47,158,68,0.2);border-color:rgba(47,158,68,0.4);color:#69db7c">
+              <i class="ti ti-check"></i> Marcar como devuelto
+            </button>
+            <button onclick="cancelarDevolucion('${d.id}','${d.reserva_id||''}')" class="btn btn-ghost" style="color:#ff8787;border-color:#ff878744" title="No se hará la devolución">
+              <i class="ti ti-x"></i>
+            </button>
+          </div>
+          ${d.notas ? `<div style="margin-top:8px;font-size:11px;color:var(--text-muted)"><i class="ti ti-notes"></i> ${limpiar(d.notas)}</div>` : ''}
+        </div>`).join('')}
+      </div>`;
+    }
+
+    function renderHistorial(lista) {
+      return `
+      <div class="card">
+        <div class="card-title" style="margin-bottom:14px"><i class="ti ti-history"></i> Historial de devoluciones</div>
+        <div class="table-wrap">
+          <table class="tabla">
+            <thead><tr><th>Cliente</th><th>Monto</th><th>Motivo</th><th>Estado</th></tr></thead>
+            <tbody>
+              ${lista.map(h => `
+              <tr>
+                <td>
+                  <div style="font-weight:600">${limpiar(h.cliente_nombre||'—')}</div>
+                  <div style="font-size:11px;color:var(--text-muted)">${limpiar(h.cliente_email||'')}</div>
+                </td>
+                <td style="font-weight:700;color:#ff8787">-$${(h.monto||0).toLocaleString('es-AR')}</td>
+                <td style="font-size:12px;color:var(--text-secondary);max-width:150px">${limpiar((h.motivo||'').substring(0,60))}${(h.motivo||'').length>60?'...':''}</td>
+                <td>
+                  ${h.estado==='completada'
+                    ? '<span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(47,158,68,0.15);color:#69db7c;font-weight:700"><i class="ti ti-check"></i> Completada</span>'
+                    : '<span style="font-size:11px;padding:3px 10px;border-radius:20px;background:rgba(224,49,49,0.15);color:#ff8787;font-weight:700"><i class="ti ti-x"></i> Cancelada</span>'}
+                </td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`;
+    }
+
+    function cargarDatosReserva(sel) {
+      const opt = sel.options[sel.selectedIndex];
+      const prev = document.getElementById('preview-reserva');
+      if (!opt.value) { prev.style.display = 'none'; return; }
+      document.getElementById('prev-cliente').textContent  = opt.dataset.cliente;
+      document.getElementById('prev-servicio').textContent = opt.dataset.servicio;
+      document.getElementById('prev-fecha').textContent    = opt.dataset.fecha;
+      document.getElementById('inp-monto').value = opt.dataset.monto;
+      prev.style.display = 'block';
+    }
+
+    async function registrarDevolucion() {
+      const reservaId = document.getElementById('sel-reserva').value;
+      const monto     = parseFloat(document.getElementById('inp-monto').value) || 0;
+      const motivo    = document.getElementById('inp-motivo').value.trim();
+      const metodo    = document.getElementById('inp-metodo').value;
+      const notas     = document.getElementById('inp-notas').value.trim();
+
+      if (!reservaId) return Toast.error('Elegí una reserva.');
+      if (!monto || monto <= 0) return Toast.error('Ingresá un monto válido.');
+      if (!motivo) return Toast.error('El motivo es obligatorio.');
+
+      const reserva = RESERVAS_DEVOLVIBLES.find(r => r.id === reservaId);
+      if (!reserva) return Toast.error('Reserva no encontrada.');
+
+      try {
+        const batch = db.batch();
+
+        // Crear devolución
+        const devRef = db.collection('devoluciones').doc();
+        batch.set(devRef, {
+          negocio_id:       NEGOCIO_ID,
+          reserva_id:       reservaId,
+          cliente_nombre:   reserva.cliente_nombre || '',
+          cliente_email:    reserva.cliente_email  || '',
+          monto,
+          motivo,
+          metodo_devolucion: metodo,
+          notas,
+          estado:     'pendiente',
+          creado_en:  new Date().toISOString(),
+        });
+
+        // Cancelar la reserva
+        batch.update(db.collection('reservas').doc(reservaId), { estado: 'cancelada' });
+
+        await batch.commit();
+        Toast.success('Devolución registrada. La reserva fue cancelada.');
+        await cargarDatos();
+      } catch(e) {
+        Toast.error('Error al registrar: ' + e.message);
+        console.error(e);
+      }
+    }
+
+    async function completarDevolucion(devId) {
+      confirmar('¿Marcar esta devolución como completada?', async () => {
+        try {
+          await db.collection('devoluciones').doc(devId).update({ estado: 'completada' });
+          Toast.success('Devolución marcada como completada.');
+          await cargarDatos();
+        } catch(e) { Toast.error('Error: ' + e.message); }
+      });
+    }
+
+    async function cancelarDevolucion(devId, reservaId) {
+      confirmar('¿Cancelar esta devolución? La reserva volverá a estado pendiente.', async () => {
+        try {
+          const batch = db.batch();
+          batch.update(db.collection('devoluciones').doc(devId), { estado: 'cancelada' });
+          if (reservaId) batch.update(db.collection('reservas').doc(reservaId), { estado: 'pendiente' });
+          await batch.commit();
+          Toast.success('Devolución cancelada. La reserva volvió a pendiente.');
+          await cargarDatos();
+        } catch(e) { Toast.error('Error: ' + e.message); }
+      });
+    }
+  </script>
+</body>
+</html>
