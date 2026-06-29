@@ -417,7 +417,7 @@ function renderPasos() {
           <div>
             <div style="font-size:13px;color:var(--text)">Para confirmar necesitás abonar una seña de</div>
             <div style="font-size:20px;font-weight:900;color:#ffd43b" id="anticipo-monto-txt">$0</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">El resto lo abonás cuando llegás</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px" id="anticipo-nota-txt">El resto lo abonás cuando llegás</div>
           </div>
         </div>
         ${METODOS_PAGO.map(mp=>`
@@ -493,13 +493,43 @@ function irPasoExito() {
 }
 
 // ── SERVICIO ─────────────────────────────────────────────
+function calcularAnticipo() {
+  // Prioridad: si el medio de pago elegido tiene seña propia activa, esa gana.
+  // Si no, cae al anticipo fijo del servicio (si lo tiene).
+  const metodo = METODOS_PAGO.find(m => m.id === sel.metodoId);
+  if (metodo && metodo.anticipo_activo) {
+    if (metodo.anticipo_tipo === 'porcentaje' && metodo.anticipo_porc > 0) {
+      return Math.round(sel.srvPre * (metodo.anticipo_porc / 100));
+    }
+    if (metodo.anticipo_tipo === 'fijo' && metodo.anticipo_monto > 0) {
+      return metodo.anticipo_monto;
+    }
+  }
+  return sel.srvAnticipo || 0;
+}
+
+function actualizarAnticipoBox() {
+  const ab = document.getElementById('anticipo-box');
+  if (!ab) return;
+  const monto = calcularAnticipo();
+  const metodo = METODOS_PAGO.find(m => m.id === sel.metodoId);
+  const notaMedio = (metodo && metodo.anticipo_activo && metodo.notas_cliente) ? metodo.notas_cliente : '';
+  if (monto > 0) {
+    ab.style.display = 'flex';
+    document.getElementById('anticipo-monto-txt').textContent = '$' + parseFloat(monto).toLocaleString('es-AR');
+    const notaEl = document.getElementById('anticipo-nota-txt');
+    if (notaEl) notaEl.textContent = notaMedio || 'El resto lo abonás cuando llegás';
+  } else {
+    ab.style.display = 'none';
+  }
+}
+
 function selServicio(id,nom,dur,pre,col,anticipo,desc,ico) {
   document.querySelectorAll('.srv-card').forEach(c=>c.classList.remove('sel'));
   document.getElementById('srv-'+id)?.classList.add('sel');
   Object.assign(sel, {srvId:id,srvNom:nom,srvDur:dur,srvPre:pre,srvCol:col,srvAnticipo:anticipo||0,srvDesc:desc||'',srvIco:ico||'ti-scissors'});
-  // Anticipo
-  const ab=document.getElementById('anticipo-box');
-  if(ab){ if(anticipo>0){ab.style.display='flex';document.getElementById('anticipo-monto-txt').textContent='$'+parseFloat(anticipo).toLocaleString('es-AR');}else{ab.style.display='none';} }
+  // Anticipo (provisorio: todavía no se eligió método de pago)
+  actualizarAnticipoBox();
   // Filtrar profesionales
   if(HAY_PROFS) {
     document.querySelectorAll('.prof-card[data-prof-id]').forEach(card=>{
@@ -684,6 +714,7 @@ function selMetodo(id) {
   const cfg=METODOS_PAGO.find(m=>m.id===id)||{};
   sel.metodoTipo=cfg.tipo||'efectivo';
   sel.reqComp=(sel.metodoTipo==='transferencia'||sel.metodoTipo==='billetera');
+  actualizarAnticipoBox();
   const box=document.getElementById('pago-info-dinamico');
   if(!box) return;
   box.innerHTML='';
@@ -741,14 +772,15 @@ function irAlResumen() {
   if(sel.reqComp&&!sel.compFile){showToast('Subí el comprobante para continuar','error');return;}
   const [y,m,d]=sel.fecha.split('-');
   const metodo=UN_METODO?METODOS_PAGO[0]:METODOS_PAGO.find(x=>x.id===sel.metodoId)||METODOS_PAGO[0];
-  const montoMostrar=sel.srvAnticipo>0?sel.srvAnticipo:sel.srvPre;
+  const montoAnticipo=calcularAnticipo();
+  const montoMostrar=montoAnticipo>0?montoAnticipo:sel.srvPre;
   document.getElementById('resumen-contenido').innerHTML=`
     <div class="resumen-item"><div class="resumen-ico"><i class="ti ${sel.srvIco}"></i></div><div><div class="resumen-lbl">Servicio</div><div class="resumen-val">${sel.srvNom} · ${sel.srvDur} min</div></div></div>
     ${HAY_PROFS&&sel.profId&&sel.profId!=='0'?`<div class="resumen-item"><div class="resumen-ico"><i class="ti ti-user-check"></i></div><div><div class="resumen-lbl">Profesional</div><div class="resumen-val">${sel.profNom}</div></div></div>`:''}
     <div class="resumen-item"><div class="resumen-ico"><i class="ti ti-calendar"></i></div><div><div class="resumen-lbl">Fecha y hora</div><div class="resumen-val">${d}/${m}/${y} · ${sel.hora}</div></div></div>
     <div class="resumen-item"><div class="resumen-ico"><i class="ti ti-user"></i></div><div><div class="resumen-lbl">Cliente</div><div class="resumen-val">${nom}<br><span style="font-size:11px;color:var(--muted)">${mail}</span></div></div></div>
     <div class="resumen-item"><div class="resumen-ico"><i class="ti ${metodo.ico}"></i></div><div><div class="resumen-lbl">Método de pago</div><div class="resumen-val">${metodo.label}</div></div></div>
-    ${montoMostrar>0?`<div class="resumen-item"><div class="resumen-ico"><i class="ti ti-currency-dollar"></i></div><div><div class="resumen-lbl">${sel.srvAnticipo>0?'Seña a abonar':'Precio total'}</div><div class="resumen-val" style="font-size:18px;font-weight:800;color:var(--c)">$${parseFloat(montoMostrar).toLocaleString('es-AR')}</div></div></div>`:''}
+    ${montoMostrar>0?`<div class="resumen-item"><div class="resumen-ico"><i class="ti ti-currency-dollar"></i></div><div><div class="resumen-lbl">${montoAnticipo>0?'Seña a abonar':'Precio total'}</div><div class="resumen-val" style="font-size:18px;font-weight:800;color:var(--c)">$${parseFloat(montoMostrar).toLocaleString('es-AR')}</div></div></div>`:''}
     ${sel.compFile?`<div class="resumen-item"><div class="resumen-ico" style="background:rgba(47,158,68,.15)"><i class="ti ti-file-check" style="color:#69db7c"></i></div><div><div class="resumen-lbl">Comprobante</div><div class="resumen-val" style="color:#69db7c">✓ Adjuntado</div></div></div>`:''}
   `;
   irPaso(TOTAL_PASOS);
@@ -800,7 +832,7 @@ async function confirmarReserva() {
       cliente_email: mail,
       cliente_telefono: tel,
       cliente_notas: notas,
-      precio_cobrado: sel.srvAnticipo>0?sel.srvAnticipo:sel.srvPre,
+      precio_cobrado: (calcularAnticipo()>0?calcularAnticipo():sel.srvPre),
       metodo_pago: metodo.tipo,
       metodo_pago_label: metodo.label,
       pago_validado: false,
