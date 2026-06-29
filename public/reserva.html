@@ -236,7 +236,13 @@ async function init() {
     }
 
     HAY_PROFS = PROFESIONALES.length > 0;
-    UN_METODO = METODOS_PAGO.length === 1;
+    const soloUnMetodo = METODOS_PAGO.length === 1;
+    const unicoNecesitaPaso = soloUnMetodo && (
+      METODOS_PAGO[0].tipo === 'transferencia' ||
+      METODOS_PAGO[0].tipo === 'billetera' ||
+      !!METODOS_PAGO[0].anticipo_activo
+    );
+    UN_METODO = soloUnMetodo && !unicoNecesitaPaso;
     TOTAL_PASOS = (HAY_PROFS ? 6 : 5) - (UN_METODO ? 1 : 0);
 
     renderHeader();
@@ -703,7 +709,11 @@ function irAlPago() {
   if(!nom){showToast('Ingresá tu nombre','error');return;}
   if(!mail||!mail.includes('@')){showToast('Ingresá un email válido','error');return;}
   if(UN_METODO){sel.metodoId=METODOS_PAGO[0].id;sel.metodoTipo=METODOS_PAGO[0].tipo;irAlResumen();}
-  else irPaso(HAY_PROFS?5:4);
+  else {
+    irPaso(HAY_PROFS?5:4);
+    // Si hay un único método (pero requiere mostrar el paso por seña/comprobante), preseleccionarlo
+    if(METODOS_PAGO.length===1 && !sel.metodoId) selMetodo(METODOS_PAGO[0].id);
+  }
 }
 
 // ── MÉTODO DE PAGO ───────────────────────────────────────
