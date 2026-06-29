@@ -236,13 +236,11 @@ async function init() {
     }
 
     HAY_PROFS = PROFESIONALES.length > 0;
-    const soloUnMetodo = METODOS_PAGO.length === 1;
-    const unicoNecesitaPaso = soloUnMetodo && (
-      METODOS_PAGO[0].tipo === 'transferencia' ||
-      METODOS_PAGO[0].tipo === 'billetera' ||
-      !!METODOS_PAGO[0].anticipo_activo
-    );
-    UN_METODO = soloUnMetodo && !unicoNecesitaPaso;
+    // Con la regla de seña obligatoria, el paso de pago siempre tiene algo que mostrar
+    // (datos bancarios + comprobante), salvo que el negocio no tenga ningún medio
+    // bancario configurado y solo un único método sin datos (ahí no hay nada que pedir).
+    const hayMedioBancario = METODOS_PAGO.some(m => m.datos && Object.keys(m.datos).some(k => m.datos[k]));
+    UN_METODO = METODOS_PAGO.length === 1 && !hayMedioBancario;
     TOTAL_PASOS = (HAY_PROFS ? 6 : 5) - (UN_METODO ? 1 : 0);
 
     renderHeader();
@@ -472,9 +470,25 @@ function renderPasos() {
         </div>
         <div id="exito-detalle" style="font-size:13px;color:var(--muted);margin-bottom:20px;line-height:1.6"></div>
         <div id="exito-pago-info"></div>
-        <button onclick="location.reload()" class="btn-pub btn-primary btn-full">
-          <i class="ti ti-plus"></i> Hacer otra reserva
-        </button>
+        <div style="display:flex;gap:10px">
+          <button onclick="mostrarDespedida()" class="btn-pub btn-ghost" style="flex:1">
+            <i class="ti ti-check"></i> Salir
+          </button>
+          <button onclick="location.reload()" class="btn-pub btn-primary" style="flex:1">
+            <i class="ti ti-plus"></i> Hacer otra reserva
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PASO DESPEDIDA -->
+    <div class="panel-paso" id="paso-despedida">
+      <div class="card-pub" style="text-align:center;padding:48px 20px">
+        <div style="width:70px;height:70px;border-radius:50%;background:rgba(59,91,219,.12);border:3px solid var(--c);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;font-size:32px;color:var(--c)">
+          <i class="ti ti-circle-check"></i>
+        </div>
+        <h2 style="font-size:20px;font-weight:800;color:var(--text);margin-bottom:8px">¡Listo!</h2>
+        <p style="color:var(--muted);font-size:13px;line-height:1.6">Tu reserva ya quedó registrada.<br>Ya podés cerrar esta página con confianza.</p>
       </div>
     </div>
   `;
@@ -495,6 +509,11 @@ function irPaso(n) {
 function irPasoExito() {
   document.getElementById('paso-'+pasoActual)?.classList.remove('activo');
   document.getElementById('paso-exito')?.classList.add('activo');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function mostrarDespedida() {
+  document.getElementById('paso-exito')?.classList.remove('activo');
+  document.getElementById('paso-despedida')?.classList.add('activo');
   window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -723,39 +742,63 @@ function selMetodo(id) {
   sel.metodoId=id;
   const cfg=METODOS_PAGO.find(m=>m.id===id)||{};
   sel.metodoTipo=cfg.tipo||'efectivo';
-  sel.reqComp=(sel.metodoTipo==='transferencia'||sel.metodoTipo==='billetera');
+  // Regla: siempre hace falta señar/pagar por un medio bancario y subir comprobante,
+  // incluso si el cliente eligió "Efectivo presencial" como forma de pago del total.
+  sel.reqComp=true;
   actualizarAnticipoBox();
   const box=document.getElementById('pago-info-dinamico');
   if(!box) return;
   box.innerHTML='';
   const btn=document.getElementById('btn-pago-cont');
-  if(sel.reqComp && cfg.datos && Object.keys(cfg.datos).length) {
-    const d=cfg.datos;
-    const esTrans=sel.metodoTipo==='transferencia';
-    const colClass=esTrans?'tipo-transferencia':'tipo-billetera';
-    let rows='';
-    if(d.titular) rows+=`<div class="transf-dato"><span class="transf-key">Titular</span><span class="transf-val">${d.titular}</span></div>`;
-    if(d.cbu) rows+=`<div class="transf-dato"><span class="transf-key">CBU</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val" style="font-size:11px">${d.cbu}</span><button class="btn-copiar" onclick="copiarDato('${d.cbu}','CBU')">Copiar</button></div></div>`;
-    if(d.cvu) rows+=`<div class="transf-dato"><span class="transf-key">CVU</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val" style="font-size:11px">${d.cvu}</span><button class="btn-copiar" onclick="copiarDato('${d.cvu}','CVU')">Copiar</button></div></div>`;
-    if(d.alias) rows+=`<div class="transf-dato"><span class="transf-key">Alias</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val">${d.alias}</span><button class="btn-copiar" onclick="copiarDato('${d.alias}','Alias')">Copiar</button></div></div>`;
-    if(d.banco) rows+=`<div class="transf-dato"><span class="transf-key">Banco</span><span class="transf-val">${d.banco}</span></div>`;
-    box.innerHTML=`
-      <div class="pago-info-box ${colClass} visible">
-        <div class="pago-info-tit ${colClass}"><i class="ti ${esTrans?'ti-building-bank':'ti-device-mobile'}"></i> ${esTrans?'Datos para transferir':cfg.label}</div>
-        ${rows}
-        <div style="margin-top:14px">
-          <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">📎 Subí el comprobante <strong style="color:#ff8787">*obligatorio</strong></div>
-          <div class="upload-zona" id="zona-comp" onclick="document.getElementById('inp-comp').click()">
-            <i class="ti ti-upload" style="font-size:24px;color:var(--muted);display:block;margin-bottom:6px"></i>
-            <div style="font-size:12px;color:var(--muted)">Tocá para subir foto del comprobante</div>
-            <img id="preview-comp" class="upload-preview">
-          </div>
-        </div>
-      </div>`;
-    actualizarBtnPago();
-  } else {
-    if(btn){btn.disabled=false;btn.style.opacity='1';btn.innerHTML='Ver resumen <i class="ti ti-arrow-right"></i>';}
+
+  // Si el método elegido YA es bancario (transferencia/billetera), usamos sus propios datos.
+  // Si es efectivo (o cualquier otro sin CBU/alias propio), buscamos el primer medio bancario
+  // activo del negocio para mostrar como "dónde depositar la seña".
+  let medioParaDatos = cfg;
+  let esSenaDeEfectivo = false;
+  if (!cfg.datos || !Object.keys(cfg.datos).some(k => cfg.datos[k])) {
+    const bancario = METODOS_PAGO.find(m => (m.tipo==='transferencia'||m.tipo==='billetera') && m.datos && Object.keys(m.datos).some(k=>m.datos[k]));
+    if (bancario) { medioParaDatos = bancario; esSenaDeEfectivo = true; }
   }
+
+  const d = medioParaDatos.datos || {};
+  const tieneDatos = Object.keys(d).some(k => d[k]);
+
+  if (!tieneDatos) {
+    // No hay ningún medio bancario configurado en el negocio: no podemos pedir comprobante.
+    box.innerHTML = `
+      <div class="pago-info-box tipo-transferencia visible">
+        <div class="pago-info-tit tipo-transferencia"><i class="ti ti-alert-triangle"></i> Seña no disponible</div>
+        <div style="font-size:13px;color:var(--muted)">Este negocio todavía no configuró un medio para señar la reserva. Contactalo directamente para coordinar el turno.</div>
+      </div>`;
+    sel.reqComp=false;
+    if(btn){btn.disabled=true;btn.style.opacity='.5';btn.innerHTML='No disponible';}
+    return;
+  }
+
+  const esTrans = medioParaDatos.tipo === 'transferencia';
+  const colClass = esTrans ? 'tipo-transferencia' : 'tipo-billetera';
+  let rows='';
+  if(d.titular) rows+=`<div class="transf-dato"><span class="transf-key">Titular</span><span class="transf-val">${d.titular}</span></div>`;
+  if(d.cbu) rows+=`<div class="transf-dato"><span class="transf-key">CBU</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val" style="font-size:11px">${d.cbu}</span><button class="btn-copiar" onclick="copiarDato('${d.cbu}','CBU')">Copiar</button></div></div>`;
+  if(d.cvu) rows+=`<div class="transf-dato"><span class="transf-key">CVU</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val" style="font-size:11px">${d.cvu}</span><button class="btn-copiar" onclick="copiarDato('${d.cvu}','CVU')">Copiar</button></div></div>`;
+  if(d.alias) rows+=`<div class="transf-dato"><span class="transf-key">Alias</span><div style="display:flex;align-items:center;gap:8px"><span class="transf-val">${d.alias}</span><button class="btn-copiar" onclick="copiarDato('${d.alias}','Alias')">Copiar</button></div></div>`;
+  if(d.banco) rows+=`<div class="transf-dato"><span class="transf-key">Banco</span><span class="transf-val">${d.banco}</span></div>`;
+  box.innerHTML=`
+    <div class="pago-info-box ${colClass} visible">
+      <div class="pago-info-tit ${colClass}"><i class="ti ${esTrans?'ti-building-bank':'ti-device-mobile'}"></i> ${esSenaDeEfectivo?'Datos para señar (el resto lo pagás en efectivo)':(esTrans?'Datos para transferir':medioParaDatos.label)}</div>
+      ${esSenaDeEfectivo?`<div style="font-size:12px;color:var(--muted);margin-bottom:10px">Para asegurar tu turno necesitás depositar la seña por este medio. El resto del pago lo hacés en efectivo cuando llegás al local.</div>`:''}
+      ${rows}
+      <div style="margin-top:14px">
+        <div style="font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px">📎 Subí el comprobante <strong style="color:#ff8787">*obligatorio</strong></div>
+        <div class="upload-zona" id="zona-comp" onclick="document.getElementById('inp-comp').click()">
+          <i class="ti ti-upload" style="font-size:24px;color:var(--muted);display:block;margin-bottom:6px"></i>
+          <div style="font-size:12px;color:var(--muted)">Tocá para subir foto del comprobante</div>
+          <img id="preview-comp" class="upload-preview">
+        </div>
+      </div>
+    </div>`;
+  actualizarBtnPago();
 }
 
 function actualizarBtnPago() {
