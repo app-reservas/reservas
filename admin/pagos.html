@@ -265,7 +265,7 @@
               ${t.activo_global ? 'Activo' : 'Inactivo'}
             </label>
             ${esSuper ? `<button onclick="editarTipo('${t.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></button>` : ''}
-            ${(esSuper && !t.predefinido) ? `<button onclick="eliminarTipo('${t.id}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>` : ''}
+            ${esSuper ? `<button onclick="eliminarTipo('${t.id}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>` : ''}
           </div>
         </div>`;
       }).join('');
@@ -351,8 +351,10 @@
 
     async function eliminarTipo(id) {
       const t = TIPOS.find(x => x.id === id);
-      if (t?.predefinido) { Toast.error('No se pueden eliminar los medios predefinidos del sistema.'); return; }
-      confirmar('¿Eliminar este medio de pago?', async () => {
+      const msg = t?.predefinido
+        ? `"${t.nombre}" es un medio predefinido del sistema. ¿Seguro que querés eliminarlo de todas formas?`
+        : '¿Eliminar este medio de pago?';
+      confirmar(msg, async () => {
         try {
           await db.collection('medios_pago_tipos').doc(id).delete();
           TIPOS = TIPOS.filter(x => x.id !== id);
