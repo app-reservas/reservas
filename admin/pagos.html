@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medios de Pago — ReservaSystem</title>
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js"></script>
+  <script src="../assets/js/app.js"></script>
+
+  <script>
+    let usuarioActual = null;
+    let esSuper       = false;
+    let NEGOCIOS      = [];
+    let TIPOS         = [];
+
+    const ICONOS = {
+      'ti-cash':                 'Efectivo',
+      'ti-building-bank':        'Banco / Transferencia',
+      'ti-brand-paypal':         'Mercado Pago',
+      'ti-device-mobile':        'MODO',
+      'ti-device-mobile-dollar': 'Billetera móvil',
+      'ti-credit-card':          'Tarjeta / Genérico',
+      'ti-wallet':               'Billetera',
+      'ti-qrcode':               'QR',
+      'ti-coin':                 'Moneda / Cripto',
+      'ti-transfer':             'Transferencia genérica',
+    };
+    const COLORES = { efectivo:'#69db7c', transferencia:'#74c0fc', billetera:'#ffd43b', mercadopago:'#009ee3', otro:'#c9c9c9' };
+    const LABELS  = { efectivo:'Efectivo', transferencia:'Transferencia', billetera:'Billetera', mercadopago:'MercadoPago', otro:'Otro' };
+
+    const DEFAULTS = [
+      { id:'efectivo_presencial',  nombre:'Pago Presencial / Efectivo',  tipo:'efectivo',     icono:'ti-cash',                 descripcion:'El cliente paga en el local al momento del servicio', requiere_cbu:false, requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:1  },
+      { id:'transf_nacion',        nombre:'Transferencia Banco Nación',  tipo:'transferencia', icono:'ti-building-bank',        descripcion:'Transferencia bancaria al Banco Nación Argentina',    requiere_cbu:true,  requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:2  },
+      { id:'transf_galicia',       nombre:'Transferencia Banco Galicia', tipo:'transferencia', icono:'ti-building-bank',        descripcion:'Transferencia bancaria al Banco Galicia',              requiere_cbu:true,  requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:3  },
+      { id:'transf_santander',     nombre:'Transferencia Banco Santander', tipo:'transferencia', icono:'ti-building-bank',      descripcion:'Transferencia bancaria al Banco Santander',            requiere_cbu:true,  requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:4  },
+      { id:'transf_bbva',          nombre:'Transferencia Banco BBVA',    tipo:'transferencia', icono:'ti-building-bank',        descripcion:'Transferencia bancaria al Banco BBVA',                 requiere_cbu:true,  requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:5  },
+      { id:'mercadopago',          nombre:'Mercado Pago',                tipo:'billetera',     icono:'ti-brand-paypal',         descripcion:'Billetera Mercado Pago (alias/CVU)',                   requiere_cbu:false, requiere_alias:true,  requiere_cvu:true,  requiere_mp:true,  orden:6  },
+      { id:'modo',                 nombre:'MODO',                        tipo:'billetera',     icono:'ti-device-mobile',        descripcion:'Billetera digital bancaria MODO',                      requiere_cbu:false, requiere_alias:true,  requiere_cvu:false, requiere_mp:false, orden:7  },
+      { id:'uala',                 nombre:'Ualá',                        tipo:'billetera',     icono:'ti-device-mobile-dollar', descripcion:'Billetera Ualá',                                       requiere_cbu:false, requiere_alias:true,  requiere_cvu:true,  requiere_mp:false, orden:8  },
+      { id:'naranjax',             nombre:'Naranja X',                   tipo:'billetera',     icono:'ti-credit-card',          descripcion:'Billetera Naranja X',                                  requiere_cbu:false, requiere_alias:true,  requiere_cvu:true,  requiere_mp:false, orden:9  },
+      { id:'personalpay',          nombre:'Personal Pay',                tipo:'billetera',     icono:'ti-device-mobile-dollar', descripcion:'Billetera Personal Pay',                               requiere_cbu:false, requiere_alias:true,  requiere_cvu:true,  requiere_mp:false, orden:10 },
+    ];
+
+    auth.onAuthStateChanged(async user => {
+      if (!user) { window.location.href = '../index.html'; return; }
+      const snap = await db.collection('usuarios').doc(user.uid).get();
+      if (!snap.exists || !snap.data().activo) { auth.signOut(); window.location.href = '../index.html'; return; }
+      usuarioActual = { uid: user.uid, ...snap.data() };
+      esSuper = usuarioActual.rol === 'superadmin';
+
+      renderLayoutAdmin({
+        titulo:        'Medios de Pago',
+        subtitulo:     'Gestión global de formas de pago y comprobantes',
+        nombreUsuario: usuarioActual.nombre,
+        rolLabel:      esSuper ? 'Super Administrador' : 'Gerente',
+      });
+
+      document.getElementById('page-content').innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+      try {
+        const negSnap = await db.collection('negocios').where('activo','==',true).get();
+        NEGOCIOS = negSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.nombre||'').localeCompare(b.nombre||''));
+
+        await seedTiposSiVacio();
+        await cargarTipos();
+
+        renderEsqueleto();
+      } catch(e) {
+        document.getElementById('page-content').innerHTML = `
+          <div class="card" style="text-align:center;padding:40px;color:#ff8787">
+            <i class="ti ti-alert-circle" style="font-size:36px;display:block;margin-bottom:10px"></i>
+            <div style="font-weight:700;margin-bottom:6px">Error al cargar Medios de Pago</div>
+            <div style="font-size:13px;color:var(--text-muted)">${e.message}</div>
+          </div>`;
+        console.error('Error en pagos.html:', e);
+      }
+    });
+
+    // ── Sembrar tipos predeterminados si la colección está vacía ──
+    async function seedTiposSiVacio() {
+      const snap = await db.collection('medios_pago_tipos').limit(1).get();
+      if (!snap.empty) return;
+      const batch = db.batch();
+      DEFAULTS.forEach(t => {
+        batch.set(db.collection('medios_pago_tipos').doc(t.id), { ...t, activo_global: true, predefinido: true });
+      });
+      await batch.commit();
+    }
+
+    async function cargarTipos() {
+      const snap = await db.collection('medios_pago_tipos').get();
+      TIPOS = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.orden||99) - (b.orden||99));
+    }
+
+    function renderEsqueleto() {
+      const negOptions = NEGOCIOS.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `
+      <div class="kpi-grid mb-6" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+        <div class="kpi-card">
+          <div class="kpi-icon indigo"><i class="ti ti-credit-card"></i></div>
+          <div><div class="kpi-value" id="kpi-total">—</div><div class="kpi-label">Tipos de pago</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon green"><i class="ti ti-toggle-right"></i></div>
+          <div><div class="kpi-value" id="kpi-activos">—</div><div class="kpi-label">Activos globalmente</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon amber"><i class="ti ti-file-check"></i></div>
+          <div><div class="kpi-value" id="kpi-pendientes">—</div><div class="kpi-label">Comprobantes pendientes</div></div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-icon cyan"><i class="ti ti-building-bank"></i></div>
+          <div><div class="kpi-value">${NEGOCIOS.length}</div><div class="kpi-label">Negocios</div></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start;overflow:hidden">
+
+        <div>
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-credit-card"></i> Tipos de medios de pago</div>
+              ${esSuper ? `<button class="btn btn-primary btn-sm" onclick="abrirModalTipo()"><i class="ti ti-plus"></i> Nuevo medio</button>` : ''}
+            </div>
+            <div class="alert alert-info mb-4" style="font-size:13px">
+              <i class="ti ti-info-circle"></i>
+              <div>Acá definís qué formas de pago existen en el sistema. Los gerentes de cada negocio podrán activar las que quieran y completar sus datos bancarios.</div>
+            </div>
+            <div id="lista-tipos"><div style="text-align:center;padding:40px;color:var(--text-muted)"><span class="spinner"></span></div></div>
+          </div>
+
+          <div class="card mt-4">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-file-check"></i> Comprobantes pendientes</div>
+              <div style="display:flex;gap:8px">
+                <select id="sel-neg-comp" class="form-control" style="width:180px" onchange="cargarComprobantes()">
+                  <option value="">— Elegí negocio —</option>
+                  ${negOptions}
+                </select>
+                <select id="f-estado" class="form-control" style="width:130px" onchange="cargarComprobantes()">
+                  <option value="">Todos</option>
+                  <option value="pendiente">Pendientes</option>
+                  <option value="aprobado">Aprobados</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="tabla">
+                <thead><tr><th>Cliente</th><th>Servicio</th><th>Método</th><th>Fecha/Hora</th><th>Monto</th><th>Comprobante</th><th>Estado</th><th style="text-align:center">Acciones</th></tr></thead>
+                <tbody id="tbody-comp"><tr><td colspan="8" style="text-align:center;padding:30px;color:var(--text-muted)">Seleccioná un negocio.</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="card">
+            <div class="card-header"><div class="card-title"><i class="ti ti-settings"></i> Config por negocio</div></div>
+            <div class="form-group">
+              <label class="form-label">Seleccioná el negocio</label>
+              <select id="sel-neg-config" class="form-control" onchange="cargarConfigNegocio(this.value)">
+                <option value="">— Elegí un negocio —</option>
+                ${negOptions}
+              </select>
+            </div>
+            <div id="config-neg-wrap" style="display:none">
+              <div id="lista-config-neg"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- MODAL CREAR/EDITAR TIPO -->
+      <div id="modal-tipo" class="modal-overlay">
+        <div class="modal" style="max-width:500px">
+          <div class="modal-header">
+            <div class="modal-title" id="modal-titulo">Nuevo medio de pago</div>
+            <button class="modal-close" onclick="cerrarModalTipo()"><i class="ti ti-x"></i></button>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre *</label>
+            <input type="text" id="f-nombre" class="form-control" placeholder="ej: Transferencia Banco Ciudad">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="form-group">
+              <label class="form-label">Categoría</label>
+              <select id="f-tipo" class="form-control">
+                <option value="efectivo">Efectivo / Presencial</option>
+                <option value="transferencia" selected>Transferencia bancaria</option>
+                <option value="billetera">Billetera virtual</option>
+                <option value="mercadopago">MercadoPago</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Ícono</label>
+              <select id="f-icono" class="form-control">
+                ${Object.entries(ICONOS).map(([ic,lbl]) => `<option value="${ic}">${lbl}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Descripción</label>
+            <input type="text" id="f-desc" class="form-control" placeholder="Descripción breve">
+          </div>
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:14px">
+            <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px">Campos requeridos al gerente</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary)"><input type="checkbox" id="f-cbu" style="accent-color:var(--indigo-500)"> CBU (22 dígitos)</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary)"><input type="checkbox" id="f-alias" style="accent-color:var(--indigo-500)"> Alias</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary)"><input type="checkbox" id="f-cvu" style="accent-color:var(--indigo-500)"> CVU (billeteras)</label>
+              <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:var(--text-secondary)"><input type="checkbox" id="f-mp" style="accent-color:var(--indigo-500)"> Keys MercadoPago</label>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Orden</label>
+            <input type="number" id="f-orden" class="form-control" value="99" min="1">
+          </div>
+          <input type="hidden" id="f-id" value="">
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-ghost" onclick="cerrarModalTipo()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarTipo()"><i class="ti ti-device-floppy"></i> Guardar</button>
+          </div>
+        </div>
+      </div>`;
+
+      renderTipos();
+      document.getElementById('kpi-total').textContent   = TIPOS.length;
+      document.getElementById('kpi-activos').textContent = TIPOS.filter(t => t.activo_global).length;
+    }
+
+    // ── LISTA DE TIPOS ──────────────────────────────────────────
+    function renderTipos() {
+      const wrap = document.getElementById('lista-tipos');
+      if (!TIPOS.length) { wrap.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-muted)">No hay medios de pago. Creá el primero.</div>`; return; }
+      wrap.innerHTML = TIPOS.map(t => {
+        const col = COLORES[t.tipo] || '#c9c9c9';
+        const lbl = LABELS[t.tipo] || t.tipo;
+        const campos = [t.requiere_cbu?'CBU':'', t.requiere_alias?'Alias':'', t.requiere_cvu?'CVU':'', t.requiere_mp?'MP Keys':''].filter(Boolean).join(' · ');
+        return `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--bg-surface);border:1px solid var(--border);margin-bottom:8px">
+          <div style="width:40px;height:40px;border-radius:10px;background:var(--bg-card);display:flex;align-items:center;justify-content:center;font-size:20px;color:${col};flex-shrink:0"><i class="ti ${t.icono}"></i></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:14px;color:var(--text-primary)">${limpiar(t.nombre)}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">
+              <span style="background:${col}22;color:${col};padding:1px 8px;border-radius:20px;font-size:10px;font-weight:600">${lbl}</span>
+              ${campos ? `<span style="margin-left:6px">${campos}</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:${t.activo_global?'#69db7c':'var(--text-muted)'}">
+              <input type="checkbox" ${t.activo_global?'checked':''} ${esSuper?'':'disabled'} onchange="toggleTipo('${t.id}',this)" style="accent-color:var(--indigo-500)">
+              ${t.activo_global ? 'Activo' : 'Inactivo'}
+            </label>
+            ${esSuper ? `<button onclick="editarTipo('${t.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></button>` : ''}
+            ${esSuper ? `<button onclick="eliminarTipo('${t.id}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>` : ''}
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function abrirModalTipo() {
+      document.getElementById('modal-titulo').textContent = 'Nuevo medio de pago';
+      document.getElementById('f-id').value = '';
+      document.getElementById('f-nombre').value = '';
+      document.getElementById('f-tipo').value  = 'transferencia';
+      document.getElementById('f-icono').value = 'ti-building-bank';
+      document.getElementById('f-desc').value  = '';
+      document.getElementById('f-cbu').checked   = false;
+      document.getElementById('f-alias').checked = false;
+      document.getElementById('f-cvu').checked   = false;
+      document.getElementById('f-mp').checked    = false;
+      document.getElementById('f-orden').value = '99';
+      document.getElementById('modal-tipo').classList.add('open');
+    }
+    function cerrarModalTipo() { document.getElementById('modal-tipo').classList.remove('open'); }
+
+    function editarTipo(id) {
+      const t = TIPOS.find(x => x.id === id);
+      if (!t) return;
+      document.getElementById('modal-titulo').textContent = 'Editar: ' + t.nombre;
+      document.getElementById('f-id').value = t.id;
+      document.getElementById('f-nombre').value = t.nombre;
+      document.getElementById('f-tipo').value  = t.tipo;
+      document.getElementById('f-icono').value = t.icono;
+      document.getElementById('f-desc').value  = t.descripcion || '';
+      document.getElementById('f-cbu').checked   = !!t.requiere_cbu;
+      document.getElementById('f-alias').checked = !!t.requiere_alias;
+      document.getElementById('f-cvu').checked   = !!t.requiere_cvu;
+      document.getElementById('f-mp').checked    = !!t.requiere_mp;
+      document.getElementById('f-orden').value = t.orden || 99;
+      document.getElementById('modal-tipo').classList.add('open');
+    }
+
+    async function guardarTipo() {
+      if (!esSuper) { Toast.error('Sin permisos.'); return; }
+      const id     = document.getElementById('f-id').value;
+      const nombre = document.getElementById('f-nombre').value.trim();
+      if (!nombre) { Toast.error('El nombre es obligatorio.'); return; }
+      const datos = {
+        nombre,
+        tipo:           document.getElementById('f-tipo').value,
+        icono:          document.getElementById('f-icono').value,
+        descripcion:    document.getElementById('f-desc').value.trim(),
+        requiere_cbu:   document.getElementById('f-cbu').checked,
+        requiere_alias: document.getElementById('f-alias').checked,
+        requiere_cvu:   document.getElementById('f-cvu').checked,
+        requiere_mp:    document.getElementById('f-mp').checked,
+        orden:          parseInt(document.getElementById('f-orden').value) || 99,
+      };
+      try {
+        if (id) {
+          await db.collection('medios_pago_tipos').doc(id).update(datos);
+          Toast.success('Medio de pago actualizado.');
+        } else {
+          await db.collection('medios_pago_tipos').add({ ...datos, activo_global: true, predefinido: false });
+          Toast.success('Medio de pago creado correctamente.');
+        }
+        cerrarModalTipo();
+        await cargarTipos();
+        renderTipos();
+        document.getElementById('kpi-total').textContent   = TIPOS.length;
+        document.getElementById('kpi-activos').textContent = TIPOS.filter(t => t.activo_global).length;
+      } catch(e) { Toast.error('Error al guardar: ' + e.message); }
+    }
+
+    async function toggleTipo(id, chk) {
+      if (!esSuper) { Toast.error('Sin permisos.'); chk.checked = !chk.checked; return; }
+      const t = TIPOS.find(x => x.id === id);
+      const nuevoValor = !t.activo_global;
+      try {
+        await db.collection('medios_pago_tipos').doc(id).update({ activo_global: nuevoValor });
+        t.activo_global = nuevoValor;
+        Toast.success(nuevoValor ? 'Medio activado.' : 'Medio desactivado.');
+        renderTipos();
+        document.getElementById('kpi-activos').textContent = TIPOS.filter(x => x.activo_global).length;
+      } catch(e) { Toast.error('Error: ' + e.message); chk.checked = !chk.checked; }
+    }
+
+    async function eliminarTipo(id) {
+      const t = TIPOS.find(x => x.id === id);
+      const msg = t?.predefinido
+        ? `"${t.nombre}" es un medio predefinido del sistema. ¿Seguro que querés eliminarlo de todas formas?`
+        : '¿Eliminar este medio de pago?';
+      confirmar(msg, async () => {
+        try {
+          await db.collection('medios_pago_tipos').doc(id).delete();
+          TIPOS = TIPOS.filter(x => x.id !== id);
+          Toast.success('Medio de pago eliminado.');
+          renderTipos();
+          document.getElementById('kpi-total').textContent   = TIPOS.length;
+          document.getElementById('kpi-activos').textContent = TIPOS.filter(x => x.activo_global).length;
+        } catch(e) { Toast.error('Error al eliminar: ' + e.message); }
+      });
+    }
+
+    // ── CONFIG POR NEGOCIO ──────────────────────────────────────
+    async function cargarConfigNegocio(negId) {
+      const wrap = document.getElementById('config-neg-wrap');
+      if (!negId) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+      document.getElementById('lista-config-neg').innerHTML = `<div style="text-align:center;padding:20px"><span class="spinner"></span></div>`;
+
+      const activos = TIPOS.filter(t => t.activo_global);
+      const medios = await Promise.all(activos.map(async t => {
+        const docId = negId + '_' + t.id;
+        const snap = await db.collection('medios_pago_negocio').doc(docId).get();
+        return { ...t, neg: snap.exists ? snap.data() : null };
+      }));
+
+      document.getElementById('lista-config-neg').innerHTML = !medios.length
+        ? `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">Sin medios disponibles.</div>`
+        : medios.map(m => {
+          const col = COLORES[m.tipo] || '#c9c9c9';
+          const activo = m.neg?.activo;
+          return `
+          <div style="padding:10px 12px;border-radius:8px;background:var(--bg-surface);border:1px solid ${activo ? 'var(--indigo-500)' : 'var(--border)'};margin-bottom:8px;display:flex;align-items:center;gap:10px">
+            <div style="width:34px;height:34px;border-radius:8px;background:var(--bg-card);display:flex;align-items:center;justify-content:center;font-size:16px;color:${col};flex-shrink:0"><i class="ti ${m.icono}"></i></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:700;color:var(--text-primary)">${limpiar(m.nombre)}</div>
+              <div style="font-size:11px;color:${activo?'#69db7c':'var(--text-muted)'}">${activo?'● Activo':'○ Inactivo'}${m.neg?.alias ? ' · Alias: ' + limpiar(m.neg.alias) : ''}</div>
+            </div>
+            <button onclick="abrirConfigMedio('${negId}','${m.id}')" class="btn btn-ghost btn-sm"><i class="ti ti-settings"></i></button>
+          </div>`;
+        }).join('');
+    }
+
+    async function abrirConfigMedio(negId, medioId) {
+      const t = TIPOS.find(x => x.id === medioId) || {};
+      const docId = negId + '_' + medioId;
+      const snap = await db.collection('medios_pago_negocio').doc(docId).get();
+      const m = snap.exists ? snap.data() : {};
+      // El access_token sensible vive aparte, en una sub-colección privada
+      let tieneToken = false;
+      try {
+        const credSnap = await db.collection('medios_pago_negocio').doc(docId).collection('privado').doc('credenciales').get();
+        tieneToken = credSnap.exists && !!credSnap.data().mp_access_token;
+      } catch(e) { /* sin permiso o no existe aún, queda en false */ }
+
+      let campos = `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;font-size:14px"><input type="checkbox" id="cn-activo" ${m.activo?'checked':''} style="accent-color:var(--indigo-500);width:18px;height:18px"> <strong>Activar para este negocio</strong></label>`;
+      if (t.requiere_cbu || t.requiere_alias || t.requiere_cvu) {
+        campos += `<div class="form-group"><label class="form-label">Titular</label><input id="cn-titular" class="form-control" value="${limpiar(m.titular||'')}" placeholder="Nombre completo"></div>`;
+        if (t.requiere_cbu)   campos += `<div class="form-group"><label class="form-label">CBU</label><input id="cn-cbu" class="form-control" value="${limpiar(m.cbu||'')}" maxlength="22" placeholder="0000000000000000000000"></div>`;
+        if (t.requiere_cvu)   campos += `<div class="form-group"><label class="form-label">CVU</label><input id="cn-cvu" class="form-control" value="${limpiar(m.cvu||'')}"></div>`;
+        if (t.requiere_alias) campos += `<div class="form-group"><label class="form-label">Alias</label><input id="cn-alias" class="form-control" value="${limpiar(m.alias||'')}" placeholder="mi.alias.banco"></div>`;
+        campos += `<div class="form-group"><label class="form-label">Banco / Entidad</label><input id="cn-banco" class="form-control" value="${limpiar(m.banco||'')}"></div>`;
+      }
+      if (t.requiere_mp) {
+        campos += `<div class="form-group"><label class="form-label">MP Public Key</label><input id="cn-mpkey" class="form-control" value="${limpiar(m.mp_public_key||'')}"></div>`;
+        campos += `<div class="form-group"><label class="form-label">MP Access Token</label><input id="cn-mptoken" class="form-control" placeholder="${tieneToken ? '••••••• (dejar vacío para no cambiar)' : 'Access Token'}"></div>`;
+      }
+
+      const modal = document.createElement('div');
+      modal.className = 'modal-overlay open';
+      modal.innerHTML = `
+        <div class="modal" style="max-width:460px">
+          <div class="modal-header"><div class="modal-title">Configurar: ${limpiar(t.nombre)}</div>
+            <button class="modal-close" onclick="this.closest('.modal-overlay').remove()"><i class="ti ti-x"></i></button></div>
+          ${campos}
+          <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+            <button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarConfigMedio('${negId}','${medioId}',this)"><i class="ti ti-device-floppy"></i> Guardar</button>
+          </div>
+        </div>`;
+      document.body.appendChild(modal);
+    }
+
+    async function guardarConfigMedio(negId, medioId, btn) {
+      const docId = negId + '_' + medioId;
+      const tokenInput = document.getElementById('cn-mptoken')?.value || '';
+      const datos = {
+        negocio_id: negId,
+        medio_id:   medioId,
+        activo:     document.getElementById('cn-activo')?.checked || false,
+        titular:    document.getElementById('cn-titular')?.value  || '',
+        cbu:        document.getElementById('cn-cbu')?.value      || '',
+        cvu:        document.getElementById('cn-cvu')?.value      || '',
+        alias:      document.getElementById('cn-alias')?.value    || '',
+        banco:      document.getElementById('cn-banco')?.value    || '',
+        mp_public_key: document.getElementById('cn-mpkey')?.value || '',
+        // El access_token NO va acá — vive en una sub-colección privada,
+        // este documento padre es de lectura pública (lo lee el público al reservar).
+      };
+      try {
+        await db.collection('medios_pago_negocio').doc(docId).set(datos, { merge: true });
+        // Access token sensible: se guarda aparte, en un documento que sigue cerrado
+        // a lectura pública (solo accesible con sesión de admin/gerente del negocio).
+        if (tokenInput) {
+          await db.collection('medios_pago_negocio').doc(docId)
+            .collection('privado').doc('credenciales')
+            .set({ mp_access_token: tokenInput }, { merge: true });
+        }
+        Toast.success('Configuración guardada correctamente.');
+        btn.closest('.modal-overlay').remove();
+        cargarConfigNegocio(negId);
+      } catch(e) { Toast.error('Error al guardar: ' + e.message); }
+    }
+
+    // ── COMPROBANTES (sobre la colección reservas) ──────────────
+    async function cargarComprobantes() {
+      const negId  = document.getElementById('sel-neg-comp').value;
+      const estado = document.getElementById('f-estado').value;
+      const tbody  = document.getElementById('tbody-comp');
+      if (!negId) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">Seleccioná un negocio.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:20px"><span class="spinner"></span></td></tr>`;
+
+      // Una sola query simple (sin combinar campos) para evitar índices compuestos
+      const [resSnap, srvSnap] = await Promise.all([
+        db.collection('reservas').where('negocio_id','==',negId).get(),
+        db.collection('servicios').get(),
+      ]);
+      const serviciosMap = {}; srvSnap.forEach(d => serviciosMap[d.id] = d.data());
+
+      let comprobantes = resSnap.docs
+        .map(d => ({ docId: d.id, ...d.data() }))
+        .filter(r => !!r.comprobante_url)
+        .map(r => ({ ...r, estadoComp: r.pago_validado ? 'aprobado' : 'pendiente' }))
+        .sort((a,b) => (b.creado_en||'').localeCompare(a.creado_en||''));
+
+      if (estado) comprobantes = comprobantes.filter(c => c.estadoComp === estado);
+
+      document.getElementById('kpi-pendientes').textContent =
+        resSnap.docs.map(d => d.data()).filter(r => r.comprobante_url && !r.pago_validado).length;
+
+      if (!comprobantes.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--text-muted)">Sin comprobantes.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = comprobantes.map(c => {
+        const [y,mo,d] = (c.fecha||'--').split('-');
+        const estCol = c.estadoComp === 'aprobado' ? '#69db7c' : '#ffd43b';
+        const estLbl = c.estadoComp === 'aprobado' ? 'Aprobado' : 'Pendiente';
+        const srv = serviciosMap[c.servicio_id]?.nombre || '—';
+        return `<tr>
+          <td style="font-weight:600">${limpiar(c.cliente_nombre)}</td>
+          <td style="font-size:13px;color:var(--text-secondary)">${limpiar(srv)}</td>
+          <td style="font-size:12px">${limpiar(c.metodo_pago||'—')}</td>
+          <td><div style="font-weight:600">${d}/${mo}/${y}</div><div style="font-size:12px;color:var(--indigo-300)">${(c.hora_inicio||'').slice(0,5)}</div></td>
+          <td style="font-weight:700;color:var(--indigo-300)">$${parseFloat(c.precio_cobrado||0).toLocaleString('es-AR')}</td>
+          <td>${c.comprobante_url ? `<a href="${c.comprobante_url}" target="_blank" class="btn btn-ghost btn-sm"><i class="ti ti-photo"></i> Ver</a>` : `<span style="font-size:12px;color:var(--text-muted)">Sin archivo</span>`}</td>
+          <td><span style="padding:2px 8px;border-radius:20px;background:${estCol}22;color:${estCol};font-size:11px;font-weight:600">${estLbl}</span></td>
+          <td style="text-align:center">${c.estadoComp === 'pendiente'
+            ? `<button onclick="aprobarComprobante('${c.docId}')" class="btn btn-success btn-icon btn-sm" title="Aprobar"><i class="ti ti-check"></i></button> <button onclick="rechazarComprobante('${c.docId}')" class="btn btn-danger btn-icon btn-sm" title="Rechazar"><i class="ti ti-x"></i></button>`
+            : `<button onclick="anularValidacion('${c.docId}')" class="btn btn-ghost btn-icon btn-sm" title="Anular validación"><i class="ti ti-rotate"></i></button>`}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function aprobarComprobante(docId) {
+      try {
+        await db.collection('reservas').doc(docId).update({ pago_validado: true, estado: 'confirmada', actualizado_en: new Date().toISOString() });
+        Toast.success('Comprobante aprobado. Reserva confirmada.');
+        cargarComprobantes();
+      } catch(e) { Toast.error('Error: ' + e.message); }
+    }
+
+    async function rechazarComprobante(docId) {
+      confirmar('¿Rechazar este comprobante?', async () => {
+        try {
+          await db.collection('reservas').doc(docId).update({ pago_validado: false, comprobante_url: null, estado: 'pendiente', actualizado_en: new Date().toISOString() });
+          Toast.success('Comprobante rechazado.');
+          cargarComprobantes();
+        } catch(e) { Toast.error('Error: ' + e.message); }
+      });
+    }
+
+    async function anularValidacion(docId) {
+      confirmar('¿Anular la validación de este comprobante? La reserva volverá a Pago Pendiente.', async () => {
+        try {
+          await db.collection('reservas').doc(docId).update({ pago_validado: false, estado: 'pendiente_pago', actualizado_en: new Date().toISOString() });
+          Toast.success('Validación anulada. La reserva volvió a Pago Pendiente.');
+          cargarComprobantes();
+        } catch(e) { Toast.error('Error: ' + e.message); }
+      });
+    }
+  </script>
+</body>
+</html>
