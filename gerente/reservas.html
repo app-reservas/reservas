@@ -117,7 +117,7 @@ async function iniciarPagina(usuario) {
 function renderPagina() {
   return `
     <!-- KPIs -->
-    <div class="kpi-grid mb-6" style="grid-template-columns:repeat(6,1fr)" id="kpi-wrap">
+    <div class="kpi-grid mb-6" id="kpi-wrap">
       ${['indigo','cyan','amber','green','indigo','red'].map(c=>`
         <div class="kpi-card"><div class="kpi-icon ${c}"><span class="spinner" style="width:18px;height:18px"></span></div>
         <div><div class="kpi-value">—</div><div class="kpi-label">...</div></div></div>`).join('')}

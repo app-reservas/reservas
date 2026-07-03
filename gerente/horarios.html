@@ -164,7 +164,7 @@ let profSelId = null;
 // ── HTML ──────────────────────────────────────────────────
 function buildHTML() {
   return `
-  <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+  <div class="split-side" style="--side-w:340px;gap:20px">
 
     <!-- HORARIOS -->
     <div class="card">
@@ -204,6 +204,7 @@ function buildHTML() {
         </div>
 
         <div id="horario-panel" style="display:none">
+          <div class="table-wrap">
           <table class="horario-table">
             <thead>
               <tr>
@@ -216,6 +217,7 @@ function buildHTML() {
             </thead>
             <tbody id="horario-tbody"></tbody>
           </table>
+          </div>
         </div>
 
         <div id="horario-empty" style="text-align:center;padding:48px 20px;color:var(--text-muted)">
