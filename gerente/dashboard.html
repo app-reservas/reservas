@@ -51,20 +51,23 @@
         const inicioSemana = inicioSemanaISO();
         const inicioMes = hoy.substring(0, 7) + '-01';
 
-        const [reservasSnap, serviciosSnap, profesionalesSnap] = await Promise.all([
+        const [reservasSnap, serviciosSnap, profesionalesSnap, monedasSnap] = await Promise.all([
           db.collection('reservas').where('negocio_id', '==', negId).get(),
           db.collection('servicios').where('negocio_id', '==', negId).get(),
           db.collection('profesionales').where('negocio_id', '==', negId).get(),
+          db.collection('monedas').get(),
         ]);
 
         const serviciosMap = {};     serviciosSnap.forEach(d => serviciosMap[d.id] = d.data());
         const profesionalesMap = {}; profesionalesSnap.forEach(d => profesionalesMap[d.id] = d.data());
+        const monedasCatalogo = []; monedasSnap.forEach(d => monedasCatalogo.push({ id: d.id, ...d.data() }));
 
         const reservas = [];
         reservasSnap.forEach(d => reservas.push({ id: d.id, ...d.data() }));
 
         // Intentamos traer devoluciones de este negocio (colección opcional, puede no existir aún)
         let devolucionesMes = 0;
+        const devolucionesMesArr = [];
         try {
           const devSnap = await db.collection('devoluciones').where('negocio_id', '==', negId).get();
           devSnap.forEach(d => {
@@ -73,9 +76,11 @@
             const fechaISO = fechaDv ? fechaDv.toISOString().substring(0, 10) : null;
             if (dv.estado === 'completada' && fechaISO && fechaISO >= inicioMes && fechaISO <= hoy) {
               devolucionesMes += Number(dv.monto || 0);
+              devolucionesMesArr.push(dv);
             }
           });
         } catch (e) { /* colección opcional */ }
+        const devolucionesMes_x_moneda = agruparPorMoneda(devolucionesMesArr, dv => dv.monto, dv => dv.moneda || dv.moneda_cobrada);
 
         // ── KPIs ──────────────────────────────────────────────
         const reservasHoy    = reservas.filter(r => r.fecha === hoy).length;
@@ -84,15 +89,21 @@
 
         const hoyMas90 = new Date(); hoyMas90.setDate(hoyMas90.getDate() + 90);
         const hoyMas90ISO = hoyMas90.toISOString().substring(0, 10);
-        const ingresosMes = reservas
-          .filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado === true && r.fecha >= inicioMes && r.fecha <= hoyMas90ISO)
-          .reduce((acc, r) => acc + Number(r.precio_cobrado || 0), 0);
+        const reservasIngresoMes = reservas
+          .filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado === true && r.fecha >= inicioMes && r.fecha <= hoyMas90ISO);
+        const ingresosMes_x_moneda = agruparPorMoneda(reservasIngresoMes, r => r.precio_cobrado, r => r.moneda_cobrada);
+        const ingresosMes = Object.values(ingresosMes_x_moneda).reduce((a,b)=>a+b,0);
 
-        const pendienteCobro = reservas
-          .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy)
-          .reduce((acc, r) => acc + Number(r.precio_cobrado || 0), 0);
+        const reservasPendCobro = reservas
+          .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy);
+        const pendienteCobro_x_moneda = agruparPorMoneda(reservasPendCobro, r => r.precio_cobrado, r => r.moneda_cobrada);
+        const pendienteCobro = Object.values(pendienteCobro_x_moneda).reduce((a,b)=>a+b,0);
 
         const ingresosNeto = ingresosMes - devolucionesMes;
+        const ingresosNeto_x_moneda = { ...ingresosMes_x_moneda };
+        Object.keys(devolucionesMes_x_moneda).forEach(cod => {
+          ingresosNeto_x_moneda[cod] = (ingresosNeto_x_moneda[cod] || 0) - devolucionesMes_x_moneda[cod];
+        });
         const clientesUnicos = new Set(reservas.map(r => r.cliente_email).filter(Boolean)).size;
         const pendientes = reservas.filter(r => r.estado === 'pendiente' && r.fecha >= hoy).length;
         const totalProfesionales = Object.values(profesionalesMap).filter(p => p.activo !== false).length;
@@ -139,7 +150,7 @@
         if (pendientes > 3) recomendaciones.push({ ico: 'ti-clock', color: '#ffd43b', txt: `Tenés <strong>${pendientes} reservas pendientes</strong> sin confirmar. Confirmálas para que el cliente reciba su turno.` });
         if (totalProfesionales === 0) recomendaciones.push({ ico: 'ti-user-plus', color: '#ff8787', txt: '<strong>Sin profesionales cargados.</strong> Agregá al menos uno para que el sistema pueda asignar turnos.' });
         if (totalServicios === 0) recomendaciones.push({ ico: 'ti-list-check', color: '#ff8787', txt: '<strong>Sin servicios cargados.</strong> Los clientes no pueden reservar sin servicios definidos.' });
-        if (pendienteCobro > 0) recomendaciones.push({ ico: 'ti-clock', color: '#ffd43b', txt: `Tenés <strong>${formatearPrecio(pendienteCobro)}</strong> en reservas confirmadas pendientes de cobro.` });
+        if (pendienteCobro > 0) recomendaciones.push({ ico: 'ti-clock', color: '#ffd43b', txt: `Tenés <strong>${formatearTotalesPorMoneda(pendienteCobro_x_moneda, monedasCatalogo)}</strong> en reservas confirmadas pendientes de cobro.` });
         if (recomendaciones.length === 0) recomendaciones.push({ ico: 'ti-circle-check', color: '#69db7c', txt: '<strong>¡Todo en orden!</strong> Tu negocio está funcionando correctamente.' });
 
         const metaMes = 100;
@@ -147,6 +158,7 @@
 
         renderDashboard({
           reservasHoy, pendientes, ingresosNeto, devolucionesMes, pendienteCobro, clientesUnicos,
+          ingresosNeto_x_moneda, devolucionesMes_x_moneda, pendienteCobro_x_moneda, monedasCatalogo,
           porEstado, reservasMes, metaMes, pctMes, mapa7, max7, recomendaciones,
           totalProfesionales, totalServicios, hoyTurnos, ultimas, hoy,
         });
@@ -276,10 +288,10 @@
           <div class="kpi-card" style="${d.devolucionesMes > 0 ? 'border-color:rgba(255,135,135,0.3)' : ''}">
             <div class="kpi-icon green"><i class="ti ti-cash"></i></div>
             <div style="flex:1">
-              <div class="kpi-value" style="color:${d.ingresosNeto > 0 ? '#69db7c' : 'var(--text-primary)'}">${formatearPrecio(d.ingresosNeto)}</div>
+              <div class="kpi-value" style="color:${d.ingresosNeto > 0 ? '#69db7c' : 'var(--text-primary)'};font-size:19px">${formatearTotalesPorMoneda(d.ingresosNeto_x_moneda, d.monedasCatalogo)}</div>
               <div class="kpi-label">Ingresos cobrados (neto)</div>
-              ${d.devolucionesMes > 0 ? `<div style="font-size:11px;color:#ff8787;margin-top:2px"><i class="ti ti-arrow-back-up" style="font-size:10px"></i> -${formatearPrecio(d.devolucionesMes)} devuelto</div>` : ''}
-              ${d.pendienteCobro > 0 ? `<div style="font-size:11px;color:#ffd43b;margin-top:2px"><i class="ti ti-clock" style="font-size:10px"></i> ${formatearPrecio(d.pendienteCobro)} por cobrar</div>` : ''}
+              ${d.devolucionesMes > 0 ? `<div style="font-size:11px;color:#ff8787;margin-top:2px"><i class="ti ti-arrow-back-up" style="font-size:10px"></i> -${formatearTotalesPorMoneda(d.devolucionesMes_x_moneda, d.monedasCatalogo)} devuelto</div>` : ''}
+              ${d.pendienteCobro > 0 ? `<div style="font-size:11px;color:#ffd43b;margin-top:2px"><i class="ti ti-clock" style="font-size:10px"></i> ${formatearTotalesPorMoneda(d.pendienteCobro_x_moneda, d.monedasCatalogo)} por cobrar</div>` : ''}
             </div>
           </div>
           <div class="kpi-card">

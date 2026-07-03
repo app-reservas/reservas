@@ -61,9 +61,23 @@ let NEGOCIOS_MAP   = {};  // id → {nombre, color_primario}
 let SERVICIOS_MAP  = {};  // id → {negocio_id, nombre, color, duracion_min, precio, capacidad_max}
 let PROF_MAP       = {};  // id → {negocio_id, nombre, servicios_ids:[]}
 let MEDIOS_MAP     = {};  // negocioId → [{id, nombre}]
+let MONEDAS_CATALOGO = [];
+let MONEDAS_NEGOCIO  = [];
 let editandoId     = null;
 let comprobanteFile = null;
 let comprobanteURL  = null;  // URL existente al editar
+
+function monedaDeReserva(r) {
+  if (r.moneda_cobrada) {
+    const m = MONEDAS_NEGOCIO.find(x => x.codigo === r.moneda_cobrada) || MONEDAS_CATALOGO.find(x => x.codigo === r.moneda_cobrada);
+    if (m) return m;
+  }
+  return MONEDAS_NEGOCIO.find(m => m.principal) || MONEDAS_NEGOCIO[0] || { simbolo:'$', decimales:2 };
+}
+function precioCobradoFmt(r) {
+  const m = monedaDeReserva(r);
+  return formatearPrecio(r.precio_cobrado || 0, m.simbolo, m.decimales ?? 2);
+}
 
 const ESTADOS = {
   pendiente:      { bg:'rgba(245,159,0,0.15)',  color:'#ffd43b', label:'Pendiente',       icon:'ti-clock' },
@@ -82,15 +96,18 @@ async function iniciarPagina(usuario) {
   // Cargar datos base en paralelo, todo scopeado al negocio del gerente
   // (un solo where por colección, sin combinar campos, para no depender
   // de índices compuestos — mismo criterio que ya aplicamos en otros módulos)
-  const [negSnap, srvSnap, profSnap] = await Promise.all([
+  const [negSnap, srvSnap, profSnap, monSnap] = await Promise.all([
     db.collection('negocios').doc(NEGOCIO_ID).get(),
     db.collection('servicios').where('negocio_id','==',NEGOCIO_ID).get(),
     db.collection('profesionales').where('negocio_id','==',NEGOCIO_ID).get(),
+    db.collection('monedas').get(),
   ]);
 
   if (negSnap.exists) NEGOCIOS_MAP[negSnap.id] = { id: negSnap.id, ...negSnap.data() };
   srvSnap.forEach(d => { const s = d.data(); if (s.activo !== false) SERVICIOS_MAP[d.id] = { id: d.id, ...s }; });
   profSnap.forEach(d => { const p = d.data(); if (p.activo !== false) PROF_MAP[d.id] = { id: d.id, ...p }; });
+  monSnap.forEach(d => { MONEDAS_CATALOGO.push({ id: d.id, ...d.data() }); });
+  MONEDAS_NEGOCIO = monedasDelNegocio(NEGOCIOS_MAP[NEGOCIO_ID], MONEDAS_CATALOGO);
 
   await cargarKPIs();
   await cargarReservas();
@@ -250,8 +267,11 @@ function renderPagina() {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Precio cobrado ($)</label>
-            <input type="number" id="res-precio" class="form-control" placeholder="0.00" min="0" step="0.01" value="0">
+            <label class="form-label" id="res-precio-label">Precio cobrado</label>
+            <div style="display:flex;gap:8px">
+              <select id="res-moneda" class="h-select" style="max-width:100px;display:none" onchange="actualizarLabelPrecioRes()"></select>
+              <input type="number" id="res-precio" class="form-control" placeholder="0.00" min="0" step="0.01" value="0" style="flex:1">
+            </div>
           </div>
         </div>
 
@@ -432,7 +452,7 @@ async function cargarReservas() {
           </div>
         </div>
       </td>
-      <td style="font-weight:700;color:var(--indigo-300)">$${parseFloat(r.precio_cobrado||0).toLocaleString('es-AR')}</td>
+      <td style="font-weight:700;color:var(--indigo-300)">${precioCobradoFmt(r)}</td>
       <td>
         <div style="display:flex;gap:5px;justify-content:center">
           <button onclick="verDetalle('${r.docId}')" class="btn btn-ghost btn-icon btn-sm" title="Ver detalle"><i class="ti ti-eye"></i></button>
@@ -541,7 +561,7 @@ async function verDetalle(docId) {
         <div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">FECHA</div><div style="font-weight:600">${formatearFecha(r.fecha)}</div></div>
         <div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">HORARIO</div><div style="font-weight:600">${(r.hora_inicio||'').slice(0,5)} → ${(r.hora_fin||'').slice(0,5)}</div></div>
         <div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">DURACIÓN</div><div style="font-weight:600">${srv?.duracion_min||'—'} min</div></div>
-        <div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">PRECIO COBRADO</div><div style="font-weight:700;color:var(--indigo-300)">$${parseFloat(r.precio_cobrado||0).toLocaleString('es-AR')}</div></div>
+        <div><div style="color:var(--text-muted);font-size:11px;margin-bottom:2px">PRECIO COBRADO</div><div style="font-weight:700;color:var(--indigo-300)">${precioCobradoFmt(r)}</div></div>
       </div>
       ${r.metodo_pago ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:13px">
         <div><div style="font-size:11px;color:var(--text-muted);margin-bottom:2px">MÉTODO DE PAGO</div><div style="font-weight:600">${limpiar(r.metodo_pago)}</div></div>
@@ -578,6 +598,7 @@ function abrirModalNuevo() {
   cargarServiciosSelect(NEGOCIO_ID);
   cargarProfesionalesSelect(NEGOCIO_ID);
   cargarMetodosPago(NEGOCIO_ID);
+  cargarMonedaSelect();
 
   resetComprobante();
   Modal.open('modal-reserva');
@@ -601,6 +622,7 @@ async function editarReserva(docId) {
   document.getElementById('res-fecha').value    = r.fecha || '';
   document.getElementById('res-estado').value   = r.estado || 'pendiente';
   document.getElementById('res-precio').value   = r.precio_cobrado || 0;
+  cargarMonedaSelect(r.moneda_cobrada);
 
   // Negocio fijo (es siempre el del gerente logueado)
   cargarServiciosSelect(NEGOCIO_ID, r.servicio_id);
@@ -648,15 +670,38 @@ function cargarMetodosPago(negId, selVal=null) {
     opciones.map(o => `<option value="${o}" ${selVal===o?'selected':''}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`).join('');
 }
 
+function cargarMonedaSelect(selCodigo=null) {
+  const sel = document.getElementById('res-moneda');
+  if (!sel) return;
+  if (MONEDAS_NEGOCIO.length <= 1) {
+    sel.style.display = 'none';
+    sel.innerHTML = MONEDAS_NEGOCIO.length ? `<option value="${MONEDAS_NEGOCIO[0].codigo}">${MONEDAS_NEGOCIO[0].codigo}</option>` : '';
+  } else {
+    sel.style.display = '';
+    sel.innerHTML = MONEDAS_NEGOCIO.map(m => `<option value="${m.codigo}" ${(selCodigo||MONEDAS_NEGOCIO.find(x=>x.principal)?.codigo)===m.codigo?'selected':''}>${limpiar(m.simbolo)} ${limpiar(m.codigo)}</option>`).join('');
+  }
+  actualizarLabelPrecioRes();
+}
+
+function actualizarLabelPrecioRes() {
+  const sel = document.getElementById('res-moneda');
+  const cod = (sel && sel.value) || (MONEDAS_NEGOCIO[0] && MONEDAS_NEGOCIO[0].codigo) || 'ARS';
+  const m = MONEDAS_NEGOCIO.find(x => x.codigo === cod) || MONEDAS_CATALOGO.find(x => x.codigo === cod);
+  document.getElementById('res-precio-label').textContent = `Precio cobrado (${m ? m.simbolo : '$'})`;
+}
+
 function onCambioServicio() {
   const srvId = document.getElementById('res-servicio').value;
   if (srvId) {
     const srv = SERVICIOS_MAP[srvId];
-    if (srv?.precio) document.getElementById('res-precio').value = srv.precio;
+    const monCod = document.getElementById('res-moneda').value;
+    const monto = srv?.precios?.[monCod] ?? srv?.precio;
+    if (monto) document.getElementById('res-precio').value = monto;
     actualizarCampoPersonas(srvId);
   }
   intentarCargarSlots();
 }
+
 
 function actualizarCampoPersonas(srvId) {
   const srv = SERVICIOS_MAP[srvId];
@@ -924,6 +969,7 @@ async function guardarReserva() {
     hora_fin:         horaFin,
     estado,
     precio_cobrado:   parseFloat(document.getElementById('res-precio').value) || 0,
+    moneda_cobrada:   document.getElementById('res-moneda').value || (MONEDAS_NEGOCIO[0] && MONEDAS_NEGOCIO[0].codigo) || 'ARS',
     metodo_pago:      document.getElementById('res-medio-pago').value || 'efectivo',
     notas_internas:   document.getElementById('res-notas').value.trim(),
     cantidad_personas: parseInt(document.getElementById('res-personas').value) || 1,

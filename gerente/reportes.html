@@ -26,6 +26,7 @@
     let RESERVAS  = [];
     let NEGOCIOS  = [];
     let SERVICIOS = [];
+    let MONEDAS   = [];
 
     const DIAS_NOMBRES = {1:'Dom',2:'Lun',3:'Mar',4:'Mié',5:'Jue',6:'Vie',7:'Sáb'};
     const MESES_ES = {'01':'Ene','02':'Feb','03':'Mar','04':'Abr','05':'May','06':'Jun','07':'Jul','08':'Ago','09':'Sep','10':'Oct','11':'Nov','12':'Dic'};
@@ -48,12 +49,13 @@
       const negId = usuario.negocio.id;
 
       // Cargar todo scopeado al negocio — un solo where por query (evita índices compuestos)
-      let negSnap, srvSnap, resSnap;
+      let negSnap, srvSnap, resSnap, monSnap;
       try {
-        [negSnap, srvSnap, resSnap] = await Promise.all([
+        [negSnap, srvSnap, resSnap, monSnap] = await Promise.all([
           db.collection('negocios').doc(negId).get(),
           db.collection('servicios').where('negocio_id', '==', negId).get(),
           db.collection('reservas').where('negocio_id', '==', negId).get(),
+          db.collection('monedas').get(),
         ]);
       } catch(err) {
         document.getElementById('page-content').innerHTML = `<div style="color:#ff8787;text-align:center;padding:40px">Error al cargar: ${err.message}</div>`;
@@ -63,6 +65,7 @@
       NEGOCIOS  = negSnap.exists ? [{ id: negSnap.id, ...negSnap.data() }] : [];
       SERVICIOS = srvSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       RESERVAS  = resSnap.docs.map(d => ({ docId: d.id, ...d.data() }));
+      MONEDAS   = monSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
       renderPagina();
     })();
@@ -85,14 +88,17 @@
       const mesAntCnt     = resMesAnt.length;
       const varRes        = mesAntCnt > 0 ? Math.round(((totalReservas - mesAntCnt) / mesAntCnt) * 100) : 0;
 
-      const ingresosMes = resMes.filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado)
-        .reduce((s,r) => s + (parseFloat(r.precio_cobrado)||0), 0);
-      const ingresosAnt  = resMesAnt.filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado)
-        .reduce((s,r) => s + (parseFloat(r.precio_cobrado)||0), 0);
+      const ingresosMes_x_moneda = agruparPorMoneda(
+        resMes.filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado), r => r.precio_cobrado, r => r.moneda_cobrada);
+      const ingresosMes = Object.values(ingresosMes_x_moneda).reduce((a,b)=>a+b,0);
+      const ingresosAnt_x_moneda = agruparPorMoneda(
+        resMesAnt.filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado), r => r.precio_cobrado, r => r.moneda_cobrada);
+      const ingresosAnt  = Object.values(ingresosAnt_x_moneda).reduce((a,b)=>a+b,0);
       const varIng        = ingresosAnt > 0 ? Math.round(((ingresosMes - ingresosAnt) / ingresosAnt) * 100) : 0;
 
-      const pendienteCobrar = resMes.filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && !r.pago_validado)
-        .reduce((s,r) => s + (parseFloat(r.precio_cobrado)||0), 0);
+      const pendienteCobrar_x_moneda = agruparPorMoneda(
+        resMes.filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && !r.pago_validado), r => r.precio_cobrado, r => r.moneda_cobrada);
+      const pendienteCobrar = Object.values(pendienteCobrar_x_moneda).reduce((a,b)=>a+b,0);
 
       const clientesUnicos = new Set(RESERVAS.map(r => r.cliente_email).filter(Boolean)).size;
 
@@ -112,7 +118,7 @@
         return {
           nombre: n.nombre, color: n.color_primario || '#3B5BDB',
           total: resN.length,
-          ingresos: resN.reduce((s,r) => s + (parseFloat(r.precio_cobrado)||0), 0),
+          ingresos_x_moneda: agruparPorMoneda(resN, r => r.precio_cobrado, r => r.moneda_cobrada),
         };
       }).sort((a,b) => b.total - a.total).slice(0,8);
       const maxNeg = Math.max(1, ...topNegocios.map(n => n.total));
@@ -170,8 +176,8 @@
         <div class="kpi-card">
           <div class="kpi-icon green"><i class="ti ti-currency-dollar"></i></div>
           <div>
-            <div class="kpi-value">$${(ingresosMes-0).toLocaleString('es-AR')}</div>
-            ${pendienteCobrar>0 ? `<div style="font-size:11px;color:#ffd43b">+$${pendienteCobrar.toLocaleString('es-AR')} por cobrar</div>` : ''}
+            <div class="kpi-value" style="font-size:19px">${formatearTotalesPorMoneda(ingresosMes_x_moneda, MONEDAS)}</div>
+            ${pendienteCobrar>0 ? `<div style="font-size:11px;color:#ffd43b">+${formatearTotalesPorMoneda(pendienteCobrar_x_moneda, MONEDAS)} por cobrar</div>` : ''}
             <div class="kpi-label">Ingresos este mes</div>
             <div class="kpi-trend" style="font-size:11px;color:${varIng>=0?'#69db7c':'#ff8787'}">${varIng>=0?'↑':'↓'} ${Math.abs(varIng)}% vs mes ant.</div>
           </div>
@@ -232,7 +238,7 @@
                   <div style="text-align:right;font-size:12px">
                     <span style="font-weight:700;color:var(--text-primary)">${n.total}</span>
                     <span style="color:var(--text-muted)"> res.</span>
-                    <span style="color:var(--indigo-300);margin-left:6px">$${n.ingresos.toLocaleString('es-AR')}</span>
+                    <span style="color:var(--indigo-300);margin-left:6px">${formatearTotalesPorMoneda(n.ingresos_x_moneda, MONEDAS)}</span>
                   </div>
                 </div>
                 <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${n.color}"></div></div>

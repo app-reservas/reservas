@@ -26,6 +26,8 @@
     let LINK_PUBLICO = '';
     let CFG = {};
     let usuarioActual = null;
+    let MONEDAS_ACTIVAS = [];
+    let MONEDAS_SELECCIONADAS = [];
 
     auth.onAuthStateChanged(async user => {
       if (!user) { window.location.href = '../index.html'; return; }
@@ -44,6 +46,17 @@
         const cfgSnap = await db.collection('configuracion').doc(NEGOCIO_ID).get();
         CFG = cfgSnap.exists ? cfgSnap.data() : {};
       } catch(e) { CFG = {}; }
+
+      try {
+        const monSnap = await db.collection('monedas').where('activa', '==', true).get();
+        const lista = [];
+        monSnap.forEach(d => lista.push({ id: d.id, ...d.data() }));
+        lista.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+        MONEDAS_ACTIVAS = lista;
+      } catch(e) { MONEDAS_ACTIVAS = []; }
+      MONEDAS_SELECCIONADAS = (NEGOCIO_ACTUAL.monedas_habilitadas && NEGOCIO_ACTUAL.monedas_habilitadas.length)
+        ? [...NEGOCIO_ACTUAL.monedas_habilitadas]
+        : (MONEDAS_ACTIVAS[0] ? [MONEDAS_ACTIVAS.find(m => m.codigo === 'ARS')?.codigo || MONEDAS_ACTIVAS[0].codigo] : ['ARS']);
 
       renderLayoutAdmin({
         titulo: 'Configuración',
@@ -160,6 +173,18 @@
         </div>
       </div>
 
+      <!-- MONEDA DEL NEGOCIO -->
+      <div class="card mb-4">
+        <div class="card-title" style="margin-bottom:6px"><i class="ti ti-coin"></i> Moneda de tu negocio</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+          Elegí con qué moneda(s) van a cobrar los turnos. Podés activar hasta 2 al mismo tiempo (por ejemplo pesos y dólares) — si activás las 2, vas a poder cargar un precio en cada una para tus servicios.
+        </div>
+        <div id="monedas-negocio-wrap">${renderMonedasNegocioHTML()}</div>
+        <button class="btn btn-primary" style="margin-top:14px" onclick="guardarMonedasNegocio()">
+          <i class="ti ti-device-floppy"></i> Guardar moneda(s)
+        </button>
+      </div>
+
       <!-- MENSAJES AUTOMÁTICOS -->
       <div class="card mb-4">
         <div class="card-title" style="margin-bottom:14px"><i class="ti ti-message"></i> Mensajes automáticos</div>
@@ -218,6 +243,64 @@
           </div>
         </div>
       </div>`;
+    }
+
+    function renderMonedasNegocioHTML() {
+      if (!MONEDAS_ACTIVAS.length) {
+        return `<div style="font-size:12px;color:var(--text-muted);padding:10px 0">El superadmin todavía no activó ninguna moneda. Por ahora tu negocio opera en pesos por defecto.</div>`;
+      }
+      const principal = NEGOCIO_ACTUAL.moneda_default || MONEDAS_SELECCIONADAS[0];
+      return MONEDAS_ACTIVAS.map(m => {
+        const elegida = MONEDAS_SELECCIONADAS.includes(m.codigo);
+        const esPrincipal = elegida && principal === m.codigo;
+        return `
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:8px;border-radius:10px;border:1px solid ${elegida ? 'var(--indigo-500)' : 'var(--border)'};background:${elegida ? 'rgba(76,110,245,0.08)' : 'var(--bg-surface)'}">
+          <label style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer">
+            <input type="checkbox" ${elegida ? 'checked' : ''} onchange="toggleMonedaNegocio('${m.codigo}')" style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+            <span style="width:34px;height:34px;border-radius:8px;background:rgba(76,110,245,0.12);display:flex;align-items:center;justify-content:center;font-weight:800;color:#748ffc;flex-shrink:0">${limpiar(m.simbolo)}</span>
+            <span>
+              <div style="font-weight:600;color:var(--text-primary)">${limpiar(m.nombre)} <span style="color:var(--text-muted);font-weight:400;font-size:12px">(${limpiar(m.codigo)})</span></div>
+            </span>
+          </label>
+          ${elegida && MONEDAS_SELECCIONADAS.length > 1 ? `
+            <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer;flex-shrink:0">
+              <input type="radio" name="moneda-principal" ${esPrincipal ? 'checked' : ''} onchange="setMonedaPrincipal('${m.codigo}')" style="accent-color:var(--indigo-500)"> Principal
+            </label>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    function toggleMonedaNegocio(codigo) {
+      if (MONEDAS_SELECCIONADAS.includes(codigo)) {
+        if (MONEDAS_SELECCIONADAS.length === 1) { Toast.error('Tenés que tener al menos 1 moneda activa.'); return; }
+        MONEDAS_SELECCIONADAS = MONEDAS_SELECCIONADAS.filter(c => c !== codigo);
+      } else {
+        if (MONEDAS_SELECCIONADAS.length >= 2) { Toast.error('Como máximo podés usar 2 monedas en tu negocio.'); return; }
+        MONEDAS_SELECCIONADAS.push(codigo);
+      }
+      if (!MONEDAS_SELECCIONADAS.includes(NEGOCIO_ACTUAL.moneda_default)) {
+        NEGOCIO_ACTUAL.moneda_default = MONEDAS_SELECCIONADAS[0];
+      }
+      document.getElementById('monedas-negocio-wrap').innerHTML = renderMonedasNegocioHTML();
+    }
+
+    function setMonedaPrincipal(codigo) {
+      NEGOCIO_ACTUAL.moneda_default = codigo;
+      document.getElementById('monedas-negocio-wrap').innerHTML = renderMonedasNegocioHTML();
+    }
+
+    async function guardarMonedasNegocio() {
+      if (!MONEDAS_SELECCIONADAS.length) { Toast.error('Elegí al menos 1 moneda.'); return; }
+      const principal = NEGOCIO_ACTUAL.moneda_default || MONEDAS_SELECCIONADAS[0];
+      try {
+        await db.collection('negocios').doc(NEGOCIO_ID).update({
+          monedas_habilitadas: MONEDAS_SELECCIONADAS,
+          moneda_default: principal,
+        });
+        NEGOCIO_ACTUAL.monedas_habilitadas = MONEDAS_SELECCIONADAS;
+        NEGOCIO_ACTUAL.moneda_default = principal;
+        Toast.success('Moneda(s) del negocio guardada(s).');
+      } catch(e) { Toast.error('Error: ' + e.message); }
     }
 
     async function guardarNegocio() {
