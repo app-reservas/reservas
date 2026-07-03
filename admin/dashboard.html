@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard — ReservaSystem</title>
+  <title>Dashboard — Panel Gerente</title>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/favicon-16x16.png">
   <link rel="shortcut icon" href="../assets/img/favicon.ico">
@@ -22,14 +22,20 @@
   <script src="../assets/js/sidebar.js"></script>
 
   <script>
+    let NEGOCIO_ACTUAL = null;
+
     (async () => {
-      const usuario = await requireLogin('superadmin');
+      const usuario = await requireLogin('gerente');
+      NEGOCIO_ACTUAL = usuario.negocio;
 
       renderLayoutAdmin({
         titulo: 'Dashboard',
-        subtitulo: 'Visión global del sistema · ' + new Date().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }),
+        subtitulo: limpiar(NEGOCIO_ACTUAL.nombre) + ' · ' + new Date().toLocaleString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }),
         nombreUsuario: usuario.nombre,
-        rolLabel: 'Super Administrador',
+        rolLabel: 'Gerente',
+        rol: 'gerente',
+        negocio: NEGOCIO_ACTUAL,
+        topbarActionsHTML: `<a href="reservas.html" class="btn btn-primary"><i class="ti ti-plus"></i> Nueva reserva</a>`,
       });
 
       await cargarDashboard();
@@ -39,255 +45,342 @@
       const cont = document.getElementById('page-content');
       cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
 
-      const hoy = hoyISO();
-      const inicioSemana = inicioSemanaISO();
+      try {
+        const negId = NEGOCIO_ACTUAL.id;
+        const hoy = hoyISO();
+        const inicioSemana = inicioSemanaISO();
+        const inicioMes = hoy.substring(0, 7) + '-01';
 
-      // --- Traer reservas (con joins manuales, ya que Firestore no tiene JOIN) ---
-      const [reservasSnap, negociosSnap, serviciosSnap, profesionalesSnap, monedasSnap] = await Promise.all([
-        db.collection('reservas').get(),
-        db.collection('negocios').get(),
-        db.collection('servicios').get(),
-        db.collection('profesionales').get(),
-        db.collection('monedas').get(),
-      ]);
+        const [reservasSnap, serviciosSnap, profesionalesSnap, monedasSnap] = await Promise.all([
+          db.collection('reservas').where('negocio_id', '==', negId).get(),
+          db.collection('servicios').where('negocio_id', '==', negId).get(),
+          db.collection('profesionales').where('negocio_id', '==', negId).get(),
+          db.collection('monedas').get(),
+        ]);
 
-      const negocios = {};      negociosSnap.forEach(d => negocios[d.id] = d.data());
-      const servicios = {};     serviciosSnap.forEach(d => servicios[d.id] = d.data());
-      const profesionales = {}; profesionalesSnap.forEach(d => profesionales[d.id] = d.data());
-      const monedasCatalogo = []; monedasSnap.forEach(d => monedasCatalogo.push({ id: d.id, ...d.data() }));
+        const serviciosMap = {};     serviciosSnap.forEach(d => serviciosMap[d.id] = d.data());
+        const profesionalesMap = {}; profesionalesSnap.forEach(d => profesionalesMap[d.id] = d.data());
+        const monedasCatalogo = []; monedasSnap.forEach(d => monedasCatalogo.push({ id: d.id, ...d.data() }));
 
-      const reservas = [];
-      reservasSnap.forEach(d => reservas.push({ id: d.id, ...d.data() }));
+        const reservas = [];
+        reservasSnap.forEach(d => reservas.push({ id: d.id, ...d.data() }));
 
-      // --- KPIs ---
-      const total_reservas_hoy   = reservas.filter(r => r.fecha === hoy).length;
-      const reservas_pendientes  = reservas.filter(r => ['pendiente','pendiente_pago'].includes(r.estado)).length;
-      const reservas_confirmadas = reservas.filter(r => r.estado === 'confirmada' && r.fecha >= hoy).length;
-      const total_negocios       = Object.values(negocios).filter(n => n.activo !== false).length;
-      const clientesUnicos       = new Set(reservas.map(r => r.cliente_email)).size;
+        // Intentamos traer devoluciones de este negocio (colección opcional, puede no existir aún)
+        let devolucionesMes = 0;
+        const devolucionesMesArr = [];
+        try {
+          const devSnap = await db.collection('devoluciones').where('negocio_id', '==', negId).get();
+          devSnap.forEach(d => {
+            const dv = d.data();
+            const fechaDv = dv.creado_en?.toDate ? dv.creado_en.toDate() : (dv.creado_en ? new Date(dv.creado_en) : null);
+            const fechaISO = fechaDv ? fechaDv.toISOString().substring(0, 10) : null;
+            if (dv.estado === 'completada' && fechaISO && fechaISO >= inicioMes && fechaISO <= hoy) {
+              devolucionesMes += Number(dv.monto || 0);
+              devolucionesMesArr.push(dv);
+            }
+          });
+        } catch (e) { /* colección opcional */ }
+        const devolucionesMes_x_moneda = agruparPorMoneda(devolucionesMesArr, dv => dv.monto, dv => dv.moneda || dv.moneda_cobrada);
 
-      const mesActual = new Date().getMonth();
-      const anioActual = new Date().getFullYear();
-      const enMesActual = (fecha) => {
-        if (!fecha) return false;
-        const [y, m] = fecha.split('-').map(Number);
-        return y === anioActual && (m - 1) === mesActual;
-      };
+        // ── KPIs ──────────────────────────────────────────────
+        const reservasHoy    = reservas.filter(r => r.fecha === hoy).length;
+        const reservasSemana = reservas.filter(r => r.fecha >= inicioSemana && r.fecha <= hoy).length;
+        const reservasMes    = reservas.filter(r => r.fecha >= inicioMes && r.fecha <= hoy).length;
 
-      const reservasIngresoMes = reservas
-        .filter(r => enMesActual(r.fecha) && ['confirmada','completada'].includes(r.estado) && r.pago_validado === true);
-      const ingresos_mes_x_moneda = agruparPorMoneda(reservasIngresoMes, r => r.precio_cobrado, r => r.moneda_cobrada);
-      const ingresos_mes = Object.values(ingresos_mes_x_moneda).reduce((a, b) => a + b, 0);
+        const hoyMas90 = new Date(); hoyMas90.setDate(hoyMas90.getDate() + 90);
+        const hoyMas90ISO = hoyMas90.toISOString().substring(0, 10);
+        const reservasIngresoMes = reservas
+          .filter(r => ['confirmada','completada'].includes(r.estado) && r.pago_validado === true && r.fecha >= inicioMes && r.fecha <= hoyMas90ISO);
+        const ingresosMes_x_moneda = agruparPorMoneda(reservasIngresoMes, r => r.precio_cobrado, r => r.moneda_cobrada);
+        const ingresosMes = Object.values(ingresosMes_x_moneda).reduce((a,b)=>a+b,0);
 
-      const reservasPendCobro = reservas
-        .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy);
-      const pendiente_cobro_x_moneda = agruparPorMoneda(reservasPendCobro, r => r.precio_cobrado, r => r.moneda_cobrada);
-      const pendiente_cobro = Object.values(pendiente_cobro_x_moneda).reduce((a, b) => a + b, 0);
+        const reservasPendCobro = reservas
+          .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy);
+        const pendienteCobro_x_moneda = agruparPorMoneda(reservasPendCobro, r => r.precio_cobrado, r => r.moneda_cobrada);
+        const pendienteCobro = Object.values(pendienteCobro_x_moneda).reduce((a,b)=>a+b,0);
 
-      const devoluciones_mes = 0; // (no hay colección de devoluciones todavía)
-      const devoluciones_mes_x_moneda = {};
-      const ingresos_neto_x_moneda = { ...ingresos_mes_x_moneda };
-      Object.keys(devoluciones_mes_x_moneda).forEach(cod => {
-        ingresos_neto_x_moneda[cod] = (ingresos_neto_x_moneda[cod] || 0) - devoluciones_mes_x_moneda[cod];
-      });
+        const ingresosNeto = ingresosMes - devolucionesMes;
+        const ingresosNeto_x_moneda = { ...ingresosMes_x_moneda };
+        Object.keys(devolucionesMes_x_moneda).forEach(cod => {
+          ingresosNeto_x_moneda[cod] = (ingresosNeto_x_moneda[cod] || 0) - devolucionesMes_x_moneda[cod];
+        });
+        const clientesUnicos = new Set(reservas.map(r => r.cliente_email).filter(Boolean)).size;
+        const pendientes = reservas.filter(r => ['pendiente','pendiente_pago'].includes(r.estado) && r.fecha >= hoy).length;
+        const totalProfesionales = Object.values(profesionalesMap).filter(p => p.activo !== false).length;
+        const totalServicios = Object.values(serviciosMap).filter(s => s.activo !== false).length;
 
-      // --- Por estado (semáforo) ---
-      const por_estado = {};
-      reservas.forEach(r => {
-        const est = r.estado === 'pendiente_pago' ? 'pendiente' : r.estado;
-        por_estado[est] = (por_estado[est] || 0) + 1;
-      });
+        // ── Semáforo ──────────────────────────────────────────
+        const porEstado = {};
+        reservas.forEach(r => {
+          const est = r.estado === 'pendiente_pago' ? 'pendiente' : r.estado;
+          porEstado[est] = (porEstado[est] || 0) + 1;
+        });
 
-      // --- Últimas 8 reservas (por creado_en desc) ---
-      const ultimas = [...reservas]
-        .sort((a, b) => (b.creado_en?.seconds || 0) - (a.creado_en?.seconds || 0))
-        .slice(0, 8);
+        // ── Últimas 6 reservas (por fecha de creación) ───────
+        const ultimas = [...reservas].sort((a, b) => {
+          const ta = a.creado_en?.seconds || 0, tb = b.creado_en?.seconds || 0;
+          return tb - ta;
+        }).slice(0, 6).map(r => ({
+          ...r,
+          servicio: serviciosMap[r.servicio_id]?.nombre || '(servicio eliminado)',
+          srv_color: serviciosMap[r.servicio_id]?.color || '#3B5BDB',
+          profesional: r.profesional_id ? (profesionalesMap[r.profesional_id]?.nombre || null) : null,
+        }));
 
-      // --- Próximas de hoy ---
-      const proximas_hoy = reservas
-        .filter(r => r.fecha === hoy && ['pendiente','pendiente_pago','confirmada'].includes(r.estado))
-        .sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''))
-        .slice(0, 5);
+        // ── Turnos de hoy (pendiente/confirmada) ─────────────
+        const hoyTurnos = reservas
+          .filter(r => r.fecha === hoy && ['pendiente','pendiente_pago','confirmada'].includes(r.estado))
+          .sort((a, b) => (a.hora_inicio || '').localeCompare(b.hora_inicio || ''))
+          .map(r => ({
+            ...r,
+            servicio: serviciosMap[r.servicio_id]?.nombre || '(servicio eliminado)',
+            profesional: r.profesional_id ? (profesionalesMap[r.profesional_id]?.nombre || null) : null,
+          }));
 
-      // --- Reservas de la semana / meta semanal ---
-      const reservas_semana = reservas.filter(r => r.fecha >= inicioSemana && r.fecha <= hoy).length;
-      const meta_semana = 50;
-      const pct_semana = Math.min(100, Math.round((reservas_semana / meta_semana) * 100));
-      const color_pct = pct_semana >= 80 ? 'green' : (pct_semana >= 50 ? '' : 'amber');
-      const color_pct_text = pct_semana >= 80 ? 'var(--estado-confirmada)' : (pct_semana >= 50 ? 'var(--indigo-400)' : 'var(--estado-pendiente)');
+        // ── Próximos 7 días (ocupación) ───────────────────────
+        const mapa7 = {};
+        reservas.forEach(r => {
+          if (r.estado === 'cancelada') return;
+          if (r.fecha >= hoy) {
+            const dias = Math.round((new Date(r.fecha) - new Date(hoy)) / 86400000);
+            if (dias >= 0 && dias <= 7) mapa7[r.fecha] = (mapa7[r.fecha] || 0) + 1;
+          }
+        });
+        const max7 = Math.max(1, ...Object.values(mapa7));
 
-      // --- Recomendaciones ---
-      const recomendaciones = [];
-      if (reservas_pendientes > 5) recomendaciones.push({ ico: 'ti-clock', txt: `Tenés <strong>${reservas_pendientes} reservas pendientes</strong> sin confirmar. Revisalas para no perder clientes.` });
-      if (total_negocios === 0) recomendaciones.push({ ico: 'ti-building-store', txt: '<strong>Creá tu primer negocio</strong> para empezar a recibir reservas.' });
-      if (pendiente_cobro > 0) recomendaciones.push({ ico: 'ti-clock', txt: `Hay <strong>${formatearTotalesPorMoneda(pendiente_cobro_x_moneda, monedasCatalogo)}</strong> en reservas confirmadas pendientes de cobro.` });
-      if (recomendaciones.length === 0) recomendaciones.push({ ico: 'ti-circle-check', txt: '<strong>Todo en orden.</strong> El sistema está funcionando correctamente.' });
+        // ── Recomendaciones automáticas ───────────────────────
+        const recomendaciones = [];
+        if (pendientes > 3) recomendaciones.push({ ico: 'ti-clock', color: '#ffd43b', txt: `Tenés <strong>${pendientes} reservas pendientes</strong> sin confirmar. Confirmálas para que el cliente reciba su turno.` });
+        if (totalProfesionales === 0) recomendaciones.push({ ico: 'ti-user-plus', color: '#ff8787', txt: '<strong>Sin profesionales cargados.</strong> Agregá al menos uno para que el sistema pueda asignar turnos.' });
+        if (totalServicios === 0) recomendaciones.push({ ico: 'ti-list-check', color: '#ff8787', txt: '<strong>Sin servicios cargados.</strong> Los clientes no pueden reservar sin servicios definidos.' });
+        if (pendienteCobro > 0) recomendaciones.push({ ico: 'ti-clock', color: '#ffd43b', txt: `Tenés <strong>${formatearTotalesPorMoneda(pendienteCobro_x_moneda, monedasCatalogo)}</strong> en reservas confirmadas pendientes de cobro.` });
+        if (recomendaciones.length === 0) recomendaciones.push({ ico: 'ti-circle-check', color: '#69db7c', txt: '<strong>¡Todo en orden!</strong> Tu negocio está funcionando correctamente.' });
 
-      // ============================================================
-      //  RENDER
-      // ============================================================
+        const metaMes = 100;
+        const pctMes = Math.min(100, Math.round((reservasMes / metaMes) * 100));
 
-      const semaforo = {
-        pendiente:  { label: 'Pendientes',  icono: 'ti-clock',        total: por_estado['pendiente']  || 0 },
-        confirmada: { label: 'Confirmadas', icono: 'ti-check',        total: por_estado['confirmada'] || 0 },
-        completada: { label: 'Completadas', icono: 'ti-circle-check', total: por_estado['completada'] || 0 },
-        cancelada:  { label: 'Canceladas',  icono: 'ti-x',            total: por_estado['cancelada']  || 0 },
-        no_asistio: { label: 'No asistió',  icono: 'ti-user-off',     total: por_estado['no_asistio'] || 0 },
-      };
-      const total_sem = Object.values(semaforo).reduce((a, s) => a + s.total, 0) || 1;
+        renderDashboard({
+          reservasHoy, pendientes, ingresosNeto, devolucionesMes, pendienteCobro, clientesUnicos,
+          ingresosNeto_x_moneda, devolucionesMes_x_moneda, pendienteCobro_x_moneda, monedasCatalogo,
+          porEstado, reservasMes, metaMes, pctMes, mapa7, max7, recomendaciones,
+          totalProfesionales, totalServicios, hoyTurnos, ultimas, hoy,
+        });
+      } catch (err) {
+        console.error(err);
+        cont.innerHTML = `<div class="alert alert-warning"><i class="ti ti-alert-triangle"></i><div>No se pudo cargar el dashboard: ${err.message || 'error desconocido'}</div></div>`;
+      }
+    }
 
-      const semaforoHTML = Object.entries(semaforo).map(([estado, info]) => {
-        const pct = Math.round((info.total / total_sem) * 100);
-        const barColor = (estado === 'cancelada' || estado === 'no_asistio') ? 'red' : (estado === 'pendiente' ? 'amber' : 'green');
+    function renderDashboard(d) {
+      const cont = document.getElementById('page-content');
+
+      const sem = [
+        { est: 'pendiente',  label: 'Pendientes',  icono: 'ti-clock',        bar: 'amber' },
+        { est: 'confirmada', label: 'Confirmadas', icono: 'ti-check',        bar: 'green' },
+        { est: 'completada', label: 'Completadas', icono: 'ti-circle-check', bar: '' },
+        { est: 'cancelada',  label: 'Canceladas',  icono: 'ti-x',            bar: 'red' },
+        { est: 'no_asistio', label: 'No asistió',  icono: 'ti-user-off',     bar: 'red' },
+      ];
+      const totalSem = Object.values(d.porEstado).reduce((a, b) => a + b, 0) || 1;
+      const semaforoHTML = sem.map(info => {
+        const cant = d.porEstado[info.est] || 0;
+        const pct = Math.round((cant / totalSem) * 100);
         return `
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
-          <span class="badge-estado estado-${estado}" style="min-width:100px;justify-content:center">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <span class="badge-estado estado-${info.est}" style="min-width:108px;justify-content:center">
             <i class="ti ${info.icono}"></i>${info.label}
           </span>
-          <div style="flex:1">
-            <div class="progress-bar"><div class="progress-fill ${barColor}" style="width:${pct}%"></div></div>
-          </div>
-          <span style="font-size:13px;font-weight:700;color:var(--text-primary);min-width:30px;text-align:right">${info.total}</span>
+          <div style="flex:1"><div class="progress-bar"><div class="progress-fill ${info.bar}" style="width:${pct}%"></div></div></div>
+          <span style="font-weight:700;color:var(--text-primary);min-width:24px;text-align:right">${cant}</span>
           <span style="font-size:11px;color:var(--text-muted);min-width:30px">${pct}%</span>
         </div>`;
       }).join('');
 
-      const recomendacionesHTML = recomendaciones.map(r => `
-        <div class="recomendacion">
-          <i class="ti ${r.ico}"></i>
+      const diasNombres = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+      let proximos7HTML = '';
+      for (let i = 0; i < 7; i++) {
+        const f = new Date(d.hoy);
+        f.setDate(f.getDate() + i);
+        const fISO = f.toISOString().substring(0, 10);
+        const cant = d.mapa7[fISO] || 0;
+        const pct7 = d.max7 > 0 ? Math.round((cant / d.max7) * 100) : 0;
+        const esHoy = fISO === d.hoy;
+        proximos7HTML += `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          <div style="width:50px;text-align:center">
+            <div style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase">${diasNombres[f.getDay()]}</div>
+            <div style="font-size:14px;font-weight:800;color:${esHoy ? 'var(--indigo-400)' : 'var(--text-primary)'}">${String(f.getDate()).padStart(2,'0')}</div>
+          </div>
+          <div style="flex:1">
+            <div class="progress-bar" style="height:8px">
+              <div class="progress-fill" style="width:${pct7}%;background:${esHoy ? 'var(--indigo-500)' : (cant > 5 ? '#69db7c' : (cant > 0 ? 'var(--indigo-400)' : 'var(--bg-hover)'))}"></div>
+            </div>
+          </div>
+          <span style="font-size:13px;font-weight:700;color:var(--text-primary);min-width:20px;text-align:right">${cant}</span>
+        </div>`;
+      }
+
+      const recomendacionesHTML = d.recomendaciones.map(r => `
+        <div class="recomendacion" style="border-color:${r.color}33;background:${r.color}0d">
+          <i class="ti ${r.ico}" style="color:${r.color}"></i>
           <div class="recomendacion-texto">${r.txt}</div>
         </div>`).join('');
 
-      const urgentesHTML = proximas_hoy.length === 0 ? '' : `
+      const hoyTurnosHTML = d.hoyTurnos.length === 0 ? '' : `
         <div class="card mb-6">
           <div class="card-header">
-            <div class="card-title"><i class="ti ti-alert-triangle" style="color:#ffd43b"></i>Turnos de hoy pendientes</div>
-            <a href="reservas.html?fecha=${hoy}" class="btn btn-ghost btn-sm">Ver todos</a>
+            <div class="card-title"><i class="ti ti-calendar-today" style="color:#ffd43b"></i> Turnos de hoy (${d.hoyTurnos.length})</div>
+            <a href="reservas.html" class="btn btn-ghost btn-sm">Ver todos</a>
           </div>
-          ${proximas_hoy.map(r => `
-            <div class="urgente-item">
-              <div class="urgente-dot" style="background:${colorEstado(r.estado)}"></div>
-              <div style="flex:1">
-                <div style="font-weight:600;color:var(--text-primary)">${limpiar(r.cliente_nombre)}</div>
-                <div style="font-size:12px;color:var(--text-muted)">${limpiar(servicios[r.servicio_id]?.nombre || '')}${r.profesional_id && profesionales[r.profesional_id] ? ' · ' + limpiar(profesionales[r.profesional_id].nombre) : ''}</div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+            ${d.hoyTurnos.map(t => `
+            <div style="padding:12px 14px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--bg-surface);border-left:3px solid ${colorEstado(t.estado)}">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <span style="font-size:16px;font-weight:800;color:var(--indigo-300)">${formatearHora(t.hora_inicio)}</span>
+                <span class="badge-estado estado-${t.estado}"><i class="ti ${iconoEstado(t.estado)}"></i>${etiquetaEstado(t.estado)}</span>
               </div>
-              <div style="text-align:right">
-                <div style="font-size:15px;font-weight:700;color:var(--indigo-300)">${formatearHora(r.hora_inicio)}</div>
-                <span class="badge-estado estado-${r.estado}"><i class="ti ${iconoEstado(r.estado)}"></i>${etiquetaEstado(r.estado)}</span>
-              </div>
-              <div style="display:flex;gap:6px;margin-left:12px">
-                <a href="reservas.html?ver=${r.id}" class="btn btn-ghost btn-icon btn-sm" title="Ver"><i class="ti ti-eye"></i></a>
-                <a href="reservas.html?confirmar=${r.id}" class="btn btn-success btn-icon btn-sm" title="Confirmar"><i class="ti ti-check"></i></a>
-              </div>
+              <div style="font-weight:600;color:var(--text-primary)">${limpiar(t.cliente_nombre)}</div>
+              <div style="font-size:12px;color:var(--text-muted)">${limpiar(t.servicio)}${t.profesional ? ' · ' + limpiar(t.profesional) : ''}</div>
             </div>`).join('')}
+          </div>
         </div>`;
 
-      const filasUltimas = ultimas.length === 0
-        ? `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:30px">Sin reservas todavía. <a href="reservas.html">Creá la primera</a></td></tr>`
-        : ultimas.map(r => `
-          <tr>
-            <td style="color:var(--text-muted);font-size:12px">#${r.id.substring(0,6)}</td>
-            <td>
-              <div style="font-weight:600">${limpiar(r.cliente_nombre)}</div>
-              <div style="font-size:12px;color:var(--text-muted)">${limpiar(r.cliente_email)}</div>
-            </td>
-            <td>${limpiar(negocios[r.negocio_id]?.nombre || '')}</td>
-            <td>${limpiar(servicios[r.servicio_id]?.nombre || '')}</td>
-            <td>
-              <div style="font-weight:600">${formatearFecha(r.fecha)}</div>
-              <div style="font-size:12px;color:var(--text-muted)">${formatearHora(r.hora_inicio)} — ${formatearHora(r.hora_fin)}</div>
-            </td>
-            <td><span class="badge-estado estado-${r.estado}"><i class="ti ${iconoEstado(r.estado)}"></i>${etiquetaEstado(r.estado)}</span></td>
-            <td>
-              <div style="display:flex;gap:6px">
-                <a href="reservas.html?ver=${r.id}" class="btn btn-ghost btn-icon btn-sm" title="Ver detalle"><i class="ti ti-eye"></i></a>
-                <a href="reservas.html?editar=${r.id}" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></a>
-              </div>
-            </td>
-          </tr>`).join('');
+      const ultimasHTML = d.ultimas.length === 0 ? `
+        <tr><td colspan="6" style="text-align:center;padding:30px;color:var(--text-muted)">
+          Sin reservas aún. <a href="reservas.html" style="color:var(--indigo-300)">Creá la primera</a>
+        </td></tr>` : d.ultimas.map(r => `
+        <tr>
+          <td>
+            <div style="font-weight:600">${limpiar(r.cliente_nombre)}</div>
+            <div style="font-size:11px;color:var(--text-muted)">${limpiar(r.cliente_email)}</div>
+          </td>
+          <td>
+            <div style="display:flex;align-items:center;gap:6px">
+              <div style="width:4px;height:28px;border-radius:3px;background:${r.srv_color}"></div>
+              <span style="font-size:13px">${limpiar(r.servicio)}</span>
+            </div>
+          </td>
+          <td style="color:var(--text-secondary);font-size:13px">${r.profesional ? limpiar(r.profesional) : '—'}</td>
+          <td>
+            <div style="font-weight:600">${formatearFecha(r.fecha)}</div>
+            <div style="font-size:12px;color:var(--indigo-300)">${formatearHora(r.hora_inicio)}</div>
+          </td>
+          <td><span class="badge-estado estado-${r.estado}"><i class="ti ${iconoEstado(r.estado)}"></i>${etiquetaEstado(r.estado)}</span></td>
+          <td>
+            <div style="display:flex;gap:5px;justify-content:center">
+              <a href="reservas.html?ver=${r.id}" class="btn btn-ghost btn-icon btn-sm"><i class="ti ti-eye"></i></a>
+              <a href="reservas.html?editar=${r.id}" class="btn btn-ghost btn-icon btn-sm"><i class="ti ti-edit"></i></a>
+            </div>
+          </td>
+        </tr>`).join('');
 
       cont.innerHTML = `
         <div class="kpi-grid mb-6">
           <div class="kpi-card">
             <div class="kpi-icon indigo"><i class="ti ti-calendar-today"></i></div>
-            <div><div class="kpi-value" data-counter="${total_reservas_hoy}">${total_reservas_hoy}</div><div class="kpi-label">Reservas hoy</div></div>
+            <div><div class="kpi-value" data-counter="${d.reservasHoy}">${d.reservasHoy}</div><div class="kpi-label">Reservas hoy</div></div>
           </div>
           <div class="kpi-card">
             <div class="kpi-icon amber"><i class="ti ti-clock"></i></div>
             <div>
-              <div class="kpi-value" data-counter="${reservas_pendientes}">${reservas_pendientes}</div>
+              <div class="kpi-value" data-counter="${d.pendientes}">${d.pendientes}</div>
               <div class="kpi-label">Pendientes</div>
-              <div class="kpi-trend ${reservas_pendientes > 3 ? 'down' : 'up'}">${reservas_pendientes > 3 ? '⚠ Requiere atención' : '✓ OK'}</div>
+              ${d.pendientes > 0 ? `<div class="kpi-trend down">⚠ Confirmar</div>` : ''}
+            </div>
+          </div>
+          <div class="kpi-card" style="${d.devolucionesMes > 0 ? 'border-color:rgba(255,135,135,0.3)' : ''}">
+            <div class="kpi-icon green"><i class="ti ti-cash"></i></div>
+            <div style="flex:1">
+              <div class="kpi-value" style="color:${d.ingresosNeto > 0 ? '#69db7c' : 'var(--text-primary)'};font-size:19px">${formatearTotalesPorMoneda(d.ingresosNeto_x_moneda, d.monedasCatalogo)}</div>
+              <div class="kpi-label">Ingresos cobrados (neto)</div>
+              ${d.devolucionesMes > 0 ? `<div style="font-size:11px;color:#ff8787;margin-top:2px"><i class="ti ti-arrow-back-up" style="font-size:10px"></i> -${formatearTotalesPorMoneda(d.devolucionesMes_x_moneda, d.monedasCatalogo)} devuelto</div>` : ''}
+              ${d.pendienteCobro > 0 ? `<div style="font-size:11px;color:#ffd43b;margin-top:2px"><i class="ti ti-clock" style="font-size:10px"></i> ${formatearTotalesPorMoneda(d.pendienteCobro_x_moneda, d.monedasCatalogo)} por cobrar</div>` : ''}
             </div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-icon green"><i class="ti ti-check"></i></div>
-            <div><div class="kpi-value" data-counter="${reservas_confirmadas}">${reservas_confirmadas}</div><div class="kpi-label">Confirmadas próximas</div></div>
+            <div class="kpi-icon cyan"><i class="ti ti-users"></i></div>
+            <div><div class="kpi-value" data-counter="${d.clientesUnicos}">${d.clientesUnicos}</div><div class="kpi-label">Clientes únicos</div></div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-icon cyan"><i class="ti ti-building-store"></i></div>
-            <div><div class="kpi-value" data-counter="${total_negocios}">${total_negocios}</div><div class="kpi-label">Negocios activos</div></div>
+        </div>
+
+        <div class="grid-2 mb-6">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title"><i class="ti ti-traffic-cone"></i> Semáforo de reservas</div>
+              <a href="reservas.html" class="btn btn-ghost btn-sm">Ver todas</a>
+            </div>
+            ${semaforoHTML}
           </div>
-          <div class="kpi-card">
-            <div class="kpi-icon purple"><i class="ti ti-users"></i></div>
-            <div><div class="kpi-value" data-counter="${clientesUnicos}">${clientesUnicos}</div><div class="kpi-label">Clientes únicos</div></div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-icon green"><i class="ti ti-currency-dollar"></i></div>
-            <div>
-              <div class="kpi-value" style="color:${ingresos_mes > 0 ? '#69db7c' : 'var(--text-primary)'};font-size:20px">${formatearTotalesPorMoneda(ingresos_neto_x_moneda, monedasCatalogo)}</div>
-              ${Object.values(devoluciones_mes_x_moneda).some(v=>v>0) ? `<div style="font-size:11px;color:#ff8787">-${formatearTotalesPorMoneda(devoluciones_mes_x_moneda, monedasCatalogo)} devuelto</div>` : ''}
-              ${pendiente_cobro > 0 ? `<div style="font-size:11px;color:#ffd43b">+${formatearTotalesPorMoneda(pendiente_cobro_x_moneda, monedasCatalogo)} por cobrar</div>` : ''}
-              <div class="kpi-label">Ingresos este mes</div>
+
+          <div style="display:flex;flex-direction:column;gap:14px">
+            <div class="card" style="background:rgba(59,91,219,0.08);border-color:rgba(59,91,219,0.25)">
+              <div class="card-title" style="margin-bottom:10px"><i class="ti ti-brand-whatsapp" style="color:#25d366"></i> Link de reservas para clientes</div>
+              <div style="display:flex;gap:8px;align-items:center">
+                <code id="link-display" style="flex:1;font-size:11px;background:var(--bg-surface);padding:8px 10px;border-radius:8px;border:1px solid var(--border);color:var(--indigo-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                  ${limpiar(window.LINK_PUBLICO_NEGOCIO || '')}
+                </code>
+                <button onclick="copiarLinkPublicoNegocio()" class="btn btn-primary btn-sm"><i class="ti ti-copy"></i> Copiar</button>
+              </div>
+              <div style="font-size:11px;color:var(--text-muted);margin-top:6px">Compartí este link por WhatsApp para que tus clientes reserven solos.</div>
+            </div>
+
+            <div class="card">
+              <div class="card-header" style="margin-bottom:10px">
+                <div class="card-title"><i class="ti ti-target"></i> Meta mensual</div>
+                <span style="font-size:12px;color:var(--text-muted)">${d.reservasMes}/${d.metaMes}</span>
+              </div>
+              <div class="progress-bar" style="height:10px;margin-bottom:6px">
+                <div class="progress-fill ${d.pctMes>=80?'green':(d.pctMes>=50?'':'amber')}" style="width:${d.pctMes}%"></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;font-size:12px">
+                <span style="color:var(--text-muted)">Este mes</span>
+                <span style="font-weight:700;color:${d.pctMes>=80?'#69db7c':(d.pctMes>=50?'var(--indigo-400)':'#ffd43b')}">${d.pctMes}%</span>
+              </div>
             </div>
           </div>
         </div>
 
         <div class="grid-2 mb-6">
           <div class="card">
-            <div class="card-header"><div class="card-title"><i class="ti ti-traffic-cone"></i>Semáforo de reservas</div></div>
-            ${semaforoHTML}
+            <div class="card-header"><div class="card-title"><i class="ti ti-calendar-week"></i> Próximos 7 días</div></div>
+            ${proximos7HTML}
           </div>
 
-          <div style="display:flex;flex-direction:column;gap:16px">
-            <div class="card">
-              <div class="card-header">
-                <div class="card-title"><i class="ti ti-target"></i>Meta semanal</div>
-                <span style="font-size:12px;color:var(--text-muted)">${reservas_semana}/${meta_semana} reservas</span>
+          <div class="card">
+            <div class="card-header"><div class="card-title"><i class="ti ti-bulb"></i> Recomendaciones</div></div>
+            ${recomendacionesHTML}
+            <div class="divider"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+              <div style="text-align:center;padding:10px;background:var(--bg-surface);border-radius:var(--radius-md)">
+                <div style="font-size:22px;font-weight:800;color:var(--indigo-400)">${d.totalProfesionales}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Profesionales</div>
               </div>
-              <div class="progress-bar" style="height:10px;margin-bottom:8px">
-                <div class="progress-fill ${color_pct}" style="width:${pct_semana}%"></div>
+              <div style="text-align:center;padding:10px;background:var(--bg-surface);border-radius:var(--radius-md)">
+                <div style="font-size:22px;font-weight:800;color:var(--indigo-400)">${d.totalServicios}</div>
+                <div style="font-size:11px;color:var(--text-muted)">Servicios activos</div>
               </div>
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted)">
-                <span>Semana actual</span>
-                <span style="color:${color_pct_text};font-weight:700">${pct_semana}%</span>
-              </div>
-            </div>
-
-            <div class="card">
-              <div class="card-header"><div class="card-title"><i class="ti ti-bulb"></i>Recomendaciones</div></div>
-              ${recomendacionesHTML}
             </div>
           </div>
         </div>
 
-        ${urgentesHTML}
+        ${hoyTurnosHTML}
 
         <div class="card">
           <div class="card-header">
-            <div class="card-title"><i class="ti ti-list"></i>Últimas reservas</div>
-            <a href="reservas.html" class="btn btn-primary btn-sm"><i class="ti ti-plus"></i>Nueva reserva</a>
+            <div class="card-title"><i class="ti ti-list"></i> Últimas reservas</div>
+            <a href="reservas.html" class="btn btn-primary btn-sm"><i class="ti ti-plus"></i> Nueva</a>
           </div>
           <div class="table-wrap">
             <table class="tabla">
-              <thead><tr><th>#</th><th>Cliente</th><th>Negocio</th><th>Servicio</th><th>Fecha / Hora</th><th>Estado</th><th>Acciones</th></tr></thead>
-              <tbody>${filasUltimas}</tbody>
+              <thead>
+                <tr><th>Cliente</th><th>Servicio</th><th>Profesional</th><th>Fecha / Hora</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
+              </thead>
+              <tbody>${ultimasHTML}</tbody>
             </table>
           </div>
         </div>
       `;
 
-      // Animar contadores (igual a app.js)
       document.querySelectorAll('[data-counter]').forEach(el => {
         animarContador(el, parseFloat(el.dataset.counter) || 0, el.dataset.prefix || '', el.dataset.suffix || '');
       });

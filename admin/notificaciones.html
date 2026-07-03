@@ -41,35 +41,39 @@
       sistema:           '#74c0fc',
     };
 
-    auth.onAuthStateChanged(async user => {
-      if (!user) { window.location.href = '../index.html'; return; }
-      const snap = await db.collection('usuarios').doc(user.uid).get();
-      if (!snap.exists || !snap.data().activo) { auth.signOut(); window.location.href = '../index.html'; return; }
-      usuarioActual = { uid: user.uid, ...snap.data() };
+    (async () => {
+      const usuario = await requireLogin('gerente');
+      usuarioActual = { uid: usuario.uid, ...usuario, negocio_id: usuario.negocio.id };
+      const negId = usuario.negocio.id;
 
       renderLayoutAdmin({
         titulo:        'Notificaciones',
-        subtitulo:     'Centro de alertas y novedades del sistema',
-        nombreUsuario: usuarioActual.nombre,
-        rolLabel:      usuarioActual.rol === 'superadmin' ? 'Super Administrador' : 'Gerente',
+        subtitulo:     'Alertas y novedades de tu negocio',
+        nombreUsuario: usuario.nombre,
+        rolLabel:      'Gerente',
+        rol:           'gerente',
+        negocio:       usuario.negocio,
       });
 
       document.getElementById('page-content').innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
 
-      // Cargar negocios para mostrar nombres
-      const negSnap = await db.collection('negocios').get();
-      negSnap.forEach(d => { NEGOCIOS_MAP[d.id] = d.data(); });
+      // Solo el negocio propio
+      NEGOCIOS_MAP[negId] = usuario.negocio;
 
-      // Cargar notificaciones
-      let query = db.collection('notificaciones').orderBy('creado_en', 'desc').limit(100);
-      if (usuarioActual.rol === 'gerente' && usuarioActual.negocio_id) {
-        query = db.collection('notificaciones')
-          .where('negocio_id', '==', usuarioActual.negocio_id)
-          .orderBy('creado_en', 'desc').limit(100);
+      // Cargar notificaciones del negocio (un solo where, sin orderBy compuesto)
+      let notifSnap;
+      try {
+        notifSnap = await db.collection('notificaciones')
+          .where('negocio_id', '==', negId).get();
+      } catch(err) {
+        document.getElementById('page-content').innerHTML = `<div style="color:#ff8787;text-align:center;padding:40px">Error al cargar: ${err.message}</div>`;
+        return;
       }
-      const notifSnap = await query.get();
+
       NOTIFS = [];
       notifSnap.forEach(d => NOTIFS.push({ id: d.id, ...d.data() }));
+      // Ordenar en cliente (evita índice compuesto negocio_id + creado_en)
+      NOTIFS.sort((a, b) => (b.creado_en || '').localeCompare(a.creado_en || ''));
 
       // Marcar todas como leídas
       const batch = db.batch();
@@ -77,7 +81,7 @@
       await batch.commit().catch(() => {});
 
       renderPagina();
-    });
+    })();
 
     function renderPagina() {
       const hoy       = new Date().toISOString().slice(0, 10);
@@ -88,7 +92,7 @@
       const cont = document.getElementById('page-content');
       cont.innerHTML = `
       <!-- KPIs -->
-      <div class="kpi-grid mb-6" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi-grid mb-6">
         <div class="kpi-card">
           <div class="kpi-icon indigo"><i class="ti ti-bell"></i></div>
           <div><div class="kpi-value">${total}</div><div class="kpi-label">Total notificaciones</div></div>

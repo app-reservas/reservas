@@ -129,9 +129,9 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 <script src="../assets/js/firebase-config.js"></script>
-<script src="../assets/js/app.js"></script>
 <script src="../assets/js/helpers.js"></script>
 <script src="../assets/js/sidebar.js"></script>
+<script src="../assets/js/app.js"></script>
 <script>
 const DIAS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
@@ -140,31 +140,31 @@ let negocios = {}, todosProfesionales = [], horarioData = {}, bloqueos = [];
 let profSelId = null;
 
 // ── AUTH ──────────────────────────────────────────────────
-auth.onAuthStateChanged(async user => {
-  if (!user) { window.location.href = '../index.html'; return; }
-  const snap = await db.collection('usuarios').doc(user.uid).get();
-  if (!snap.exists || !snap.data().activo) { auth.signOut(); window.location.href = '../index.html'; return; }
-  usuarioActual = { uid: user.uid, ...snap.data() };
-  rolActual = usuarioActual.rol;
-  if (rolActual === 'gerente') negocioActual = usuarioActual.negocio_id;
+(async () => {
+  const usuario = await requireLogin('gerente');
+  usuarioActual = usuario;
+  rolActual = 'gerente';
+  negocioActual = usuario.negocio.id;
 
   renderLayoutAdmin({
     titulo: 'Horarios',
     subtitulo: 'Configurá la disponibilidad de cada profesional',
-    nombreUsuario: usuarioActual.nombre,
-    rolLabel: rolActual === 'superadmin' ? 'Super Administrador' : 'Gerente',
+    nombreUsuario: usuario.nombre,
+    rolLabel: 'Gerente',
+    rol: 'gerente',
+    negocio: usuario.negocio,
   });
 
   document.getElementById('page-content').innerHTML = buildHTML();
   await Promise.all([cargarNegocios(), cargarTodosProfesionales()]);
   initSelects();
   cargarBloqueos();
-});
+})();
 
 // ── HTML ──────────────────────────────────────────────────
 function buildHTML() {
   return `
-  <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+  <div class="split-side" style="--side-w:340px;gap:20px">
 
     <!-- HORARIOS -->
     <div class="card">
@@ -204,6 +204,7 @@ function buildHTML() {
         </div>
 
         <div id="horario-panel" style="display:none">
+          <div class="table-wrap">
           <table class="horario-table">
             <thead>
               <tr>
@@ -216,6 +217,7 @@ function buildHTML() {
             </thead>
             <tbody id="horario-tbody"></tbody>
           </table>
+          </div>
         </div>
 
         <div id="horario-empty" style="text-align:center;padding:48px 20px;color:var(--text-muted)">
@@ -246,15 +248,16 @@ function buildHTML() {
 
 // ── DATOS ─────────────────────────────────────────────────
 async function cargarNegocios() {
-  const snap = await db.collection('negocios').where('activo','==',true).get();
-  snap.forEach(d => { negocios[d.id] = { id:d.id, ...d.data() }; });
+  // Gerente: solo su propio negocio
+  if (negocioActual && usuarioActual?.negocio) {
+    negocios[negocioActual] = usuarioActual.negocio;
+  }
 }
 
 async function cargarTodosProfesionales() {
-  let q = db.collection('profesionales').where('activo','==',true);
-  if (negocioActual) q = q.where('negocio_id','==',negocioActual);
-  const snap = await q.get();
-  todosProfesionales = snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  // Traer por negocio (un solo where) y filtrar activo en cliente
+  const snap = await db.collection('profesionales').where('negocio_id','==',negocioActual).get();
+  todosProfesionales = snap.docs.map(d => ({ id:d.id, ...d.data() })).filter(p => p.activo !== false);
 }
 
 function initSelects() {
