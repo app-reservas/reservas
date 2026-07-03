@@ -10,6 +10,26 @@
   <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
   <link rel="stylesheet" href="../assets/css/dark.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <style>
+    .cal-layout { display:flex; gap:16px; align-items:flex-start; }
+    .cal-side   { width:230px; flex-shrink:0; display:flex; flex-direction:column; gap:14px; }
+    .cal-main   { flex:1; min-width:0; }
+
+    /* Mobile: apilar filtros arriba del calendario, y achicar celdas */
+    @media (max-width:768px) {
+      .cal-layout { flex-direction:column; }
+      .cal-side   { width:100%; }
+      .cal-celda, .cal-celda-vacia { min-height:44px !important; padding:4px !important; }
+      .cal-dia-num { font-size:11px !important; margin-bottom:2px !important; }
+      .cal-badge   { font-size:8px !important; padding:1px 3px !important; margin-bottom:1px !important; }
+    }
+    @media (max-width:480px) {
+      /* En celular chico, los badges de estado no entran: mostramos solo un puntito por estado */
+      .cal-celda, .cal-celda-vacia { min-height:38px !important; padding:3px !important; }
+      .cal-badge-texto { display:none; }
+      .cal-badge { display:flex !important; justify-content:center !important; padding:0 !important; height:6px !important; border-radius:50% !important; width:6px !important; margin:0 auto 2px auto !important; }
+    }
+  </style>
 </head>
 <body>
 
@@ -19,6 +39,7 @@
   <script src="../assets/js/firebase-config.js"></script>
   <script src="../assets/js/helpers.js"></script>
   <script src="../assets/js/sidebar.js"></script>
+  <script src="../assets/js/app.js"></script>
 
   <script>
     let NEGOCIO_ACTUAL  = null;
@@ -70,10 +91,10 @@
     // ── HTML ──────────────────────────────────────────────────
     function buildHTML() {
       return `
-      <div style="display:flex;gap:16px;align-items:flex-start">
+      <div class="cal-layout">
 
         <!-- PANEL IZQUIERDO -->
-        <div style="width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:14px">
+        <div class="cal-side">
 
           <div class="card">
             <div class="card-title" style="margin-bottom:14px"><i class="ti ti-filter"></i> Filtros</div>
@@ -105,7 +126,7 @@
         </div>
 
         <!-- CALENDARIO PRINCIPAL -->
-        <div style="flex:1;min-width:0">
+        <div class="cal-main">
           <div class="card">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
               <button class="btn btn-ghost btn-sm" onclick="irAMes(-1)"><i class="ti ti-chevron-left"></i></button>
@@ -174,6 +195,7 @@
       grid.innerHTML = '';
       for (let i = 0; i < diaInicio; i++) {
         const v = document.createElement('div');
+        v.className = 'cal-celda-vacia';
         v.style.cssText = 'min-height:80px;background:var(--bg-surface);border-radius:6px;opacity:0.3;border:1px solid var(--border)';
         grid.appendChild(v);
       }
@@ -190,6 +212,7 @@
     function crearCelda(dia, fecha, datos, esHoy) {
       const div = document.createElement('div');
       const sel = diaSeleccionado === fecha;
+      div.className = 'cal-celda';
       div.style.cssText = `min-height:80px;background:${sel?'rgba(59,91,219,0.15)':esHoy?'rgba(59,91,219,0.08)':'var(--bg-surface)'};border-radius:6px;border:1px solid ${sel||esHoy?'var(--indigo-500)':'var(--border)'};padding:6px;cursor:pointer;transition:all 0.15s`;
       div.dataset.fecha = fecha;
       div.onclick = () => seleccionarDia(fecha);
@@ -197,15 +220,15 @@
       div.onmouseout  = () => { if(diaSeleccionado!==fecha) div.style.borderColor=esHoy?'var(--indigo-500)':'var(--border)'; };
 
       const total = Object.values(datos).reduce((a,b)=>a+b,0);
-      let html = `<div style="font-size:13px;font-weight:${esHoy?'800':'600'};color:${esHoy?'var(--indigo-300)':'var(--text-primary)'};margin-bottom:4px">
+      let html = `<div class="cal-dia-num" style="font-size:13px;font-weight:${esHoy?'800':'600'};color:${esHoy?'var(--indigo-300)':'var(--text-primary)'};margin-bottom:4px">
         ${dia}${esHoy?` <span style="font-size:9px;background:var(--indigo-600);color:#fff;padding:1px 5px;border-radius:10px;vertical-align:middle">HOY</span>`:''}
       </div>`;
       if (total > 0) {
         Object.entries(datos).forEach(([estado, cant]) => {
           const c = ESTADOS_COLOR[estado] || '#aaa';
           const etiq = estado==='no_asistio'?'N/A':estado==='pendiente_pago'?'P.P':estado.substring(0,3).toUpperCase();
-          html += `<div style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${c}22;color:${c};margin-bottom:2px;display:flex;align-items:center;justify-content:space-between">
-            <span>${etiq}</span><span>${cant}</span>
+          html += `<div class="cal-badge" style="font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;background:${c}22;color:${c};margin-bottom:2px;display:flex;align-items:center;justify-content:space-between" title="${etiq}: ${cant}">
+            <span class="cal-badge-texto">${etiq}</span><span class="cal-badge-texto">${cant}</span>
           </div>`;
         });
       }
