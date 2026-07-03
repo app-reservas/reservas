@@ -316,7 +316,7 @@
             <div class="card" style="background:rgba(59,91,219,0.08);border-color:rgba(59,91,219,0.25)">
               <div class="card-title" style="margin-bottom:10px"><i class="ti ti-brand-whatsapp" style="color:#25d366"></i> Link de reservas para clientes</div>
               <div style="display:flex;gap:8px;align-items:center">
-                <code id="link-display" style="flex:1;font-size:11px;background:var(--bg-surface);padding:8px 10px;border-radius:8px;border:1px solid var(--border);color:var(--indigo-300);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                <code id="link-display" style="flex:1;min-width:0;font-size:11px;background:var(--bg-surface);padding:8px 10px;border-radius:8px;border:1px solid var(--border);color:var(--indigo-300);word-break:break-all">
                   ${limpiar(window.LINK_PUBLICO_NEGOCIO || '')}
                 </code>
                 <button onclick="copiarLinkPublicoNegocio()" class="btn btn-primary btn-sm"><i class="ti ti-copy"></i> Copiar</button>
