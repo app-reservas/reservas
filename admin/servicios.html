@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servicios — Panel Gerente</title>
+  <title>Servicios — ReservaSystem</title>
   <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/favicon-16x16.png">
   <link rel="shortcut icon" href="../assets/img/favicon.ico">
@@ -20,41 +20,25 @@
   <script src="../assets/js/firebase-config.js"></script>
   <script src="../assets/js/helpers.js"></script>
   <script src="../assets/js/sidebar.js"></script>
-  <script src="../assets/js/app.js"></script>
 
   <script>
     let SERVICIOS_CACHE = [];
-    let NEGOCIO_ID      = '';
-    let NEGOCIO_NOMBRE  = '';
-    let NEGOCIO_OBJ      = {};
+    let NEGOCIOS_ACTIVOS_CACHE = [];
+    let NEGOCIOS_MAP_FULL = {};
     let MONEDAS_CATALOGO = [];
-    let MONEDAS_NEGOCIO  = [];
-    
+    let EDITANDO_PRECIOS = {};
 
     const ICONOS_SUGERIDOS = ['ti-scissors','ti-heart','ti-star','ti-sparkles','ti-yoga','ti-dumbbell','ti-stethoscope','ti-eye','ti-music','ti-camera','ti-brush','ti-palette','ti-book','ti-tools','ti-plant','ti-pet'];
     const COLORES_SUGERIDOS = ['#3B5BDB','#7048E8','#1098AD','#2F9E44','#E8590C','#E03131','#862E9C','#F59F00'];
 
     (async () => {
-      const usuario = await requireLogin('gerente');
-      NEGOCIO_ID     = usuario.negocio.id;
-      NEGOCIO_NOMBRE = usuario.negocio.nombre;
-      NEGOCIO_OBJ    = usuario.negocio;
-
-      try {
-        const monSnap = await db.collection('monedas').get();
-        const lista = [];
-        monSnap.forEach(d => lista.push({ id: d.id, ...d.data() }));
-        MONEDAS_CATALOGO = lista;
-      } catch(e) { MONEDAS_CATALOGO = []; }
-      MONEDAS_NEGOCIO = monedasDelNegocio(NEGOCIO_OBJ, MONEDAS_CATALOGO);
+      const usuario = await requireLogin('superadmin');
 
       renderLayoutAdmin({
         titulo: 'Servicios',
-        rol: 'gerente',
-        negocio: usuario.negocio,
-        subtitulo: 'Servicios de tu negocio',
+        subtitulo: 'Gestión de servicios ofrecidos por los negocios',
         nombreUsuario: usuario.nombre,
-        rolLabel: 'Gerente',
+        rolLabel: 'Super Administrador',
         topbarActionsHTML: `
           <button class="btn btn-primary" onclick="abrirModalNuevo()">
             <i class="ti ti-plus"></i> Nuevo servicio
@@ -69,25 +53,29 @@
     // ============================================================
     async function cargarServicios() {
       const cont = document.getElementById('page-content');
-      if (!cont) return;
       cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
 
-      if (!NEGOCIO_ID) {
-        cont.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:40px">Error: negocio no cargado. Intentá recargar la página.</div>`;
-        return;
-      }
+      const [serviciosSnap, negociosSnap, reservasSnap, monedasSnap] = await Promise.all([
+        db.collection('servicios').get(),
+        db.collection('negocios').where('activo', '==', true).get(),
+        db.collection('reservas').get(),
+        db.collection('monedas').get(),
+      ]);
 
-      let serviciosSnap, reservasSnap;
-      try {
-        [serviciosSnap, reservasSnap] = await Promise.all([
-          db.collection('servicios').where('negocio_id', '==', NEGOCIO_ID).get(),
-          db.collection('reservas').where('negocio_id', '==', NEGOCIO_ID).get(),
-        ]);
-      } catch(err) {
-        console.error('cargarServicios error:', err);
-        cont.innerHTML = `<div style="color:#ff8787;text-align:center;padding:40px"><i class="ti ti-alert-triangle" style="font-size:36px;display:block;margin-bottom:10px"></i>Error al cargar: ${err.message}</div>`;
-        return;
-      }
+      const negociosMap = {};
+      const negociosActivos = [];
+      NEGOCIOS_MAP_FULL = {};
+      negociosSnap.forEach(d => {
+        negociosMap[d.id] = d.data().nombre;
+        negociosActivos.push({ id: d.id, nombre: d.data().nombre });
+        NEGOCIOS_MAP_FULL[d.id] = { id: d.id, ...d.data() };
+      });
+      negociosActivos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      NEGOCIOS_ACTIVOS_CACHE = negociosActivos;
+
+      const monedasLista = [];
+      monedasSnap.forEach(d => monedasLista.push({ id: d.id, ...d.data() }));
+      MONEDAS_CATALOGO = monedasLista;
 
       const reservasPorServicio = {};
       reservasSnap.forEach(d => {
@@ -99,9 +87,14 @@
       serviciosSnap.forEach(d => servicios.push({
         id: d.id,
         ...d.data(),
+        negocio_nombre: negociosMap[d.data().negocio_id] || '(negocio eliminado)',
         total_reservas: reservasPorServicio[d.id] || 0,
       }));
+
+      // ORDER BY negocio, luego por orden manual (nombre como desempate)
       servicios.sort((a, b) => {
+        const n = (a.negocio_nombre || '').localeCompare(b.negocio_nombre || '');
+        if (n !== 0) return n;
         const oa = a.orden ?? 9999, ob = b.orden ?? 9999;
         if (oa !== ob) return oa - ob;
         return (a.nombre || '').localeCompare(b.nombre || '');
@@ -118,13 +111,21 @@
       const activos = servicios.filter(s => s.activo !== false).length;
       const inactivos = total - activos;
 
-      const totalGrupo = servicios.length;
+      const opcionesNegFiltro = NEGOCIOS_ACTIVOS_CACHE.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+      const opcionesNegModal  = NEGOCIOS_ACTIVOS_CACHE.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+
+      const conteoPorNegocio = {};
+      servicios.forEach(s => conteoPorNegocio[s.negocio_id] = (conteoPorNegocio[s.negocio_id] || 0) + 1);
+
       let posEnGrupo = 0;
+      let negocioAnterior = null;
       const filasHTML = servicios.length === 0 ? `
-        <tr><td colspan="8" style="text-align:center;padding:40px;color:var(--text-muted)">
+        <tr><td colspan="9" style="text-align:center;padding:40px;color:var(--text-muted)">
           Sin servicios. <button class="btn btn-primary btn-sm" onclick="abrirModalNuevo()"><i class="ti ti-plus"></i> Crear primero</button>
         </td></tr>` : servicios.map(s => {
-          posEnGrupo++;
+          posEnGrupo = (negocioAnterior === s.negocio_id) ? posEnGrupo + 1 : 1;
+          negocioAnterior = s.negocio_id;
+          const totalGrupo = conteoPorNegocio[s.negocio_id] || 1;
           const color = s.color || '#3B5BDB';
           const desc = s.descripcion ? `<div style="font-size:11px;color:var(--text-muted)">${limpiar(s.descripcion.substring(0,50))}${s.descripcion.length>50?'...':''}</div>` : '';
           return `
@@ -146,13 +147,14 @@
               </div>
             </div>
           </td>
+          <td style="color:var(--text-secondary)">${limpiar(s.negocio_nombre)}</td>
           <td>
             <span style="display:inline-flex;align-items:center;gap:4px;font-size:13px">
               <i class="ti ti-clock" style="color:var(--text-muted)"></i>
               ${s.duracion_min || 30} min
             </span>
           </td>
-          <td style="font-weight:700;color:var(--indigo-300)">${formatearPreciosServicio(s, NEGOCIO_OBJ, MONEDAS_CATALOGO)}</td>
+          <td style="font-weight:700;color:var(--indigo-300)">${formatearPreciosServicio(s, NEGOCIOS_MAP_FULL[s.negocio_id], MONEDAS_CATALOGO)}</td>
           <td><span style="font-weight:600">${s.total_reservas}</span> <span style="font-size:11px;color:var(--text-muted)">reservas</span></td>
           <td>
             <button onclick="toggleServicio('${s.id}', this)" class="badge-estado ${s.activo !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none">
@@ -181,7 +183,12 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title"><i class="ti ti-list-check"></i> Servicios</div>
-            <div style="display:flex;gap:10px">              <div style="position:relative">
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <select id="filtro-neg" class="form-control" style="width:200px" onchange="filtrarServicios()">
+                <option value="">Todos los negocios</option>
+                ${opcionesNegFiltro}
+              </select>
+              <div style="position:relative">
                 <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted)"></i>
                 <input type="text" id="buscador" class="form-control" placeholder="Buscar..." style="padding-left:34px;width:180px" oninput="filtrarServicios()">
               </div>
@@ -191,7 +198,7 @@
           <div class="table-wrap">
             <table class="tabla">
               <thead>
-                <tr><th style="text-align:center">Orden</th><th>#</th><th>Servicio</th><th>Duración</th><th>Precio</th><th>Reservas</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
+                <tr><th style="text-align:center">Orden</th><th>#</th><th>Servicio</th><th>Negocio</th><th>Duración</th><th>Precio</th><th>Reservas</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
               </thead>
               <tbody id="tbody-srv">
                 ${filasHTML}
@@ -210,11 +217,19 @@
             <form id="form-srv" novalidate style="overflow-y:auto;flex:1;padding-right:4px">
               <input type="hidden" id="srv-id" value="">
 
-              <div class="form-group">
-                <label class="form-label">Nombre del servicio *</label>
-                <input type="text" id="srv-nombre" class="form-control" placeholder="Ej: Corte de cabello" required>
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Nombre del servicio *</label>
+                  <input type="text" id="srv-nombre" class="form-control" placeholder="Ej: Corte de cabello" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Negocio *</label>
+                  <select id="srv-negocio" class="form-control" onchange="actualizarCamposPrecioAdmin()">
+                    <option value="">— Seleccioná —</option>
+                    ${opcionesNegModal}
+                  </select>
+                </div>
               </div>
-              <input type="hidden" id="srv-negocio" value="">
 
               <div class="form-group">
                 <label class="form-label">Descripción</label>
@@ -309,7 +324,9 @@
                     <option value="180">3 horas</option>
                   </select>
                 </div>
-                <div id="precio-fields-inner" style="display:flex;flex-direction:column;gap:10px"></div>
+                <div id="precio-fields-inner" style="display:flex;flex-direction:column;gap:10px">
+                  <div style="font-size:12px;color:var(--text-muted)">Elegí un negocio para cargar el precio.</div>
+                </div>
               </div>
 
               <div class="form-group">
@@ -377,6 +394,18 @@
       document.getElementById('srv-icono-i').className = 'ti ' + ic;
     }
 
+    function actualizarCamposPrecioAdmin() {
+      const negocioId = document.getElementById('srv-negocio').value;
+      const cont = document.getElementById('precio-fields-inner');
+      if (!negocioId) {
+        cont.innerHTML = `<div style="font-size:12px;color:var(--text-muted)">Elegí un negocio para cargar el precio.</div>`;
+        return;
+      }
+      const negocio = NEGOCIOS_MAP_FULL[negocioId] || {};
+      const monedas = monedasDelNegocio(negocio, MONEDAS_CATALOGO);
+      cont.innerHTML = htmlCamposPrecio(monedas, EDITANDO_PRECIOS);
+    }
+
     // ============================================================
     //  ABRIR MODAL NUEVO
     // ============================================================
@@ -394,12 +423,12 @@
       document.getElementById('srv-anticipacion').value = 0;
       document.getElementById('srv-imagen-preview').style.display = 'none';
       document.getElementById('srv-imagen-url').value = '';
-      document.getElementById('srv-negocio').value = NEGOCIO_ID;
       document.getElementById('srv-icono').value = 'ti-scissors';
       document.getElementById('srv-icono-i').className = 'ti ti-scissors';
       document.getElementById('srv-pago-efectivo').checked = true;
       document.getElementById('srv-pago-transferencia').checked = false;
-      document.getElementById('precio-fields-inner').innerHTML = htmlCamposPrecio(MONEDAS_NEGOCIO, {});
+      EDITANDO_PRECIOS = {};
+      actualizarCamposPrecioAdmin();
       Modal.open('modal-srv');
     }
 
@@ -417,8 +446,8 @@
       document.getElementById('srv-desc').value    = s.descripcion || '';
       document.getElementById('srv-msg').value      = s.mensaje_confirmacion || '';
       document.getElementById('srv-dur').value      = s.duracion_min || 30;
-      const preciosExistentes = s.precios || (s.precio != null ? { [MONEDAS_NEGOCIO[0].codigo]: s.precio } : {});
-      document.getElementById('precio-fields-inner').innerHTML = htmlCamposPrecio(MONEDAS_NEGOCIO, preciosExistentes);
+      EDITANDO_PRECIOS = s.precios || (s.precio != null ? { [monedasDelNegocio(NEGOCIOS_MAP_FULL[s.negocio_id], MONEDAS_CATALOGO)[0].codigo]: s.precio } : {});
+      actualizarCamposPrecioAdmin();
       document.getElementById('srv-color').value    = s.color || '#3B5BDB';
       document.getElementById('srv-activo').checked = s.activo !== false;
       document.getElementById('srv-publico').checked = s.publico !== false;
@@ -469,7 +498,8 @@
 
       const nombre = document.getElementById('srv-nombre').value.trim();
       const negocioId = document.getElementById('srv-negocio').value;
-      if (!nombre) { Toast.error('El nombre es obligatorio.'); return; }
+      if (!nombre)    { Toast.error('El nombre es obligatorio.'); return; }
+      if (!negocioId) { Toast.error('Seleccioná un negocio.'); return; }
 
       btn.disabled = true;
       btn.innerHTML = `<span class="spinner"></span> Guardando...`;
@@ -484,7 +514,8 @@
         if (document.getElementById('srv-pago-transferencia').checked) metodosPago.push('transferencia');
 
         const precios = leerCamposPrecio('precio-fields-inner');
-        const monedaPrincipal = (MONEDAS_NEGOCIO.find(m => m.principal) || MONEDAS_NEGOCIO[0]).codigo;
+        const monedasNeg = monedasDelNegocio(NEGOCIOS_MAP_FULL[negocioId], MONEDAS_CATALOGO);
+        const monedaPrincipal = (monedasNeg.find(m => m.principal) || monedasNeg[0]).codigo;
 
         const payload = {
           nombre,
@@ -509,7 +540,8 @@
           await db.collection('servicios').doc(id).update(payload);
           Toast.success('Servicio actualizado correctamente.');
         } else {
-          const maxOrden = SERVICIOS_CACHE.reduce((max, x) => Math.max(max, x.orden ?? -1), -1);
+          const delGrupo = SERVICIOS_CACHE.filter(x => x.negocio_id === negocioId);
+          const maxOrden = delGrupo.reduce((max, x) => Math.max(max, x.orden ?? -1), -1);
           payload.orden = maxOrden + 1;
           payload.creado_en = firebase.firestore.FieldValue.serverTimestamp();
           await db.collection('servicios').add(payload);
@@ -547,20 +579,25 @@
     }
 
     // ============================================================
-    //  REORDENAR (subir / bajar)
+    //  REORDENAR (subir / bajar dentro del mismo negocio)
     // ============================================================
     async function moverServicio(id, dir) {
-      const grupo = SERVICIOS_CACHE.slice().sort((a, b) => {
-        const oa = a.orden ?? 9999, ob = b.orden ?? 9999;
-        if (oa !== ob) return oa - ob;
-        return (a.nombre || '').localeCompare(b.nombre || '');
-      });
+      const s = SERVICIOS_CACHE.find(x => x.id === id);
+      if (!s) return;
+
+      const grupo = SERVICIOS_CACHE
+        .filter(x => x.negocio_id === s.negocio_id)
+        .sort((a, b) => {
+          const oa = a.orden ?? 9999, ob = b.orden ?? 9999;
+          if (oa !== ob) return oa - ob;
+          return (a.nombre || '').localeCompare(b.nombre || '');
+        });
 
       const idx = grupo.findIndex(x => x.id === id);
       const newIdx = idx + dir;
-      if (idx === -1 || newIdx < 0 || newIdx >= grupo.length) return;
+      if (newIdx < 0 || newIdx >= grupo.length) return;
 
-      // Normaliza el orden de todos según la posición actual
+      // Normaliza el orden de todo el grupo según la posición actual
       grupo.forEach((x, i) => x.orden = i);
       // Intercambia las posiciones del servicio movido y su vecino
       const tmp = grupo[idx].orden;
@@ -595,5 +632,6 @@
     }
   </script>
 
+  <script src="../assets/js/app.js"></script>
 </body>
 </html>

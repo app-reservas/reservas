@@ -354,7 +354,7 @@ async function renderPagina() {
 
   document.getElementById('page-content').innerHTML = `
     <!-- KPIs -->
-    <div class="kpi-grid mb-6" style="grid-template-columns:repeat(5,1fr)">
+    <div class="kpi-grid mb-6">
       <div class="kpi-card">
         <div class="kpi-icon indigo"><i class="ti ti-users"></i></div>
         <div><div class="kpi-value">${stats.usuarios}</div><div class="kpi-label">Usuarios</div></div>
@@ -377,7 +377,7 @@ async function renderPagina() {
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:flex-start">
+    <div class="split-side">
 
       <!-- COLUMNA IZQUIERDA -->
       <div>

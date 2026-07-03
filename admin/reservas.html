@@ -41,38 +41,38 @@
 
 <script>
 (async () => {
-  const usuario = await requireLogin('gerente');
-  NEGOCIO_ID = usuario.negocio.id;
+  const usuario = await requireLogin('superadmin');
   renderLayoutAdmin({
     titulo: 'Reservas',
-    subtitulo: 'Gestión de turnos de tu negocio',
+    subtitulo: 'Gestión completa de turnos y reservas',
     nombreUsuario: usuario.nombre,
-    rolLabel: 'Gerente',
-    rol: 'gerente',
-    negocio: usuario.negocio,
+    rolLabel: 'Super Administrador',
     topbarActionsHTML: `<button class="btn btn-primary" onclick="abrirModalNuevo()"><i class="ti ti-plus"></i> Nueva reserva</button>`
   });
   await iniciarPagina(usuario);
 })();
 
 // ── ESTADO GLOBAL ─────────────────────────────────────────────
-let NEGOCIO_ID      = null; // negocio fijo del gerente logueado
 let NEGOCIOS_MAP   = {};  // id → {nombre, color_primario}
 let SERVICIOS_MAP  = {};  // id → {negocio_id, nombre, color, duracion_min, precio, capacidad_max}
 let PROF_MAP       = {};  // id → {negocio_id, nombre, servicios_ids:[]}
 let MEDIOS_MAP     = {};  // negocioId → [{id, nombre}]
 let MONEDAS_CATALOGO = [];
-let MONEDAS_NEGOCIO  = [];
 let editandoId     = null;
 let comprobanteFile = null;
 let comprobanteURL  = null;  // URL existente al editar
 
+// Devuelve el símbolo/decimales de la moneda con la que se cobró una reserva
 function monedaDeReserva(r) {
+  const neg = NEGOCIOS_MAP[r.negocio_id];
+  const monedas = monedasDelNegocio(neg, MONEDAS_CATALOGO);
   if (r.moneda_cobrada) {
-    const m = MONEDAS_NEGOCIO.find(x => x.codigo === r.moneda_cobrada) || MONEDAS_CATALOGO.find(x => x.codigo === r.moneda_cobrada);
+    const m = monedas.find(x => x.codigo === r.moneda_cobrada);
     if (m) return m;
+    const cat = MONEDAS_CATALOGO.find(x => x.codigo === r.moneda_cobrada);
+    if (cat) return cat;
   }
-  return MONEDAS_NEGOCIO.find(m => m.principal) || MONEDAS_NEGOCIO[0] || { simbolo:'$', decimales:2 };
+  return monedas.find(m => m.principal) || monedas[0];
 }
 function precioCobradoFmt(r) {
   const m = monedaDeReserva(r);
@@ -93,21 +93,25 @@ async function iniciarPagina(usuario) {
   const cont = document.getElementById('page-content');
   cont.innerHTML = renderPagina();
 
-  // Cargar datos base en paralelo, todo scopeado al negocio del gerente
-  // (un solo where por colección, sin combinar campos, para no depender
-  // de índices compuestos — mismo criterio que ya aplicamos en otros módulos)
+  // Cargar datos base en paralelo
   const [negSnap, srvSnap, profSnap, monSnap] = await Promise.all([
-    db.collection('negocios').doc(NEGOCIO_ID).get(),
-    db.collection('servicios').where('negocio_id','==',NEGOCIO_ID).get(),
-    db.collection('profesionales').where('negocio_id','==',NEGOCIO_ID).get(),
+    db.collection('negocios').where('activo','==',true).get(),
+    db.collection('servicios').where('activo','==',true).get(),
+    db.collection('profesionales').where('activo','==',true).get(),
     db.collection('monedas').get(),
   ]);
 
-  if (negSnap.exists) NEGOCIOS_MAP[negSnap.id] = { id: negSnap.id, ...negSnap.data() };
-  srvSnap.forEach(d => { const s = d.data(); if (s.activo !== false) SERVICIOS_MAP[d.id] = { id: d.id, ...s }; });
-  profSnap.forEach(d => { const p = d.data(); if (p.activo !== false) PROF_MAP[d.id] = { id: d.id, ...p }; });
+  negSnap.forEach(d => { NEGOCIOS_MAP[d.id] = { id: d.id, ...d.data() }; });
+  srvSnap.forEach(d => { SERVICIOS_MAP[d.id] = { id: d.id, ...d.data() }; });
+  profSnap.forEach(d => { PROF_MAP[d.id] = { id: d.id, ...d.data() }; });
   monSnap.forEach(d => { MONEDAS_CATALOGO.push({ id: d.id, ...d.data() }); });
-  MONEDAS_NEGOCIO = monedasDelNegocio(NEGOCIOS_MAP[NEGOCIO_ID], MONEDAS_CATALOGO);
+
+  // Poblar filtro de negocios
+  const fNeg = document.getElementById('f-negocio');
+  if (fNeg) {
+    fNeg.innerHTML = '<option value="">Todos</option>' +
+      Object.values(NEGOCIOS_MAP).map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+  }
 
   await cargarKPIs();
   await cargarReservas();
@@ -149,6 +153,12 @@ function renderPagina() {
             <option value="no_asistio">No asistió</option>
           </select>
         </div>
+        <div style="min-width:180px">
+          <label class="form-label">Negocio</label>
+          <select id="f-negocio" class="h-select" onchange="cargarReservas()">
+            <option value="">Todos</option>
+          </select>
+        </div>
         <button class="btn btn-ghost" onclick="limpiarFiltros()"><i class="ti ti-refresh"></i> Limpiar</button>
         <button class="btn btn-primary" onclick="abrirModalNuevo()"><i class="ti ti-plus"></i> Nueva</button>
       </div>
@@ -164,7 +174,7 @@ function renderPagina() {
         <table class="tabla">
           <thead>
             <tr>
-              <th>#</th><th>Cliente</th><th>Servicio</th>
+              <th>#</th><th>Cliente</th><th>Negocio / Servicio</th>
               <th>Profesional</th><th>Fecha y Hora</th>
               <th>Estado</th><th>Precio</th><th style="text-align:center">Acciones</th>
             </tr>
@@ -209,11 +219,17 @@ function renderPagina() {
         <!-- DATOS DEL TURNO -->
         <div style="margin-bottom:16px;padding:14px;background:var(--bg-surface);border-radius:var(--radius-md);border:1px solid var(--border)">
           <div class="section-label"><i class="ti ti-calendar"></i> Turno</div>
+          <div class="form-group">
+            <label class="form-label">Negocio *</label>
+            <select id="res-negocio" class="h-select" onchange="onCambioNegocio(this.value)">
+              <option value="">— Seleccioná —</option>
+            </select>
+          </div>
           <div class="grid-2">
             <div class="form-group">
               <label class="form-label">Servicio *</label>
               <select id="res-servicio" class="h-select" onchange="onCambioServicio()">
-                <option value="">— Seleccioná —</option>
+                <option value="">— Seleccioná negocio primero —</option>
               </select>
             </div>
             <div class="form-group">
@@ -336,7 +352,7 @@ function renderPagina() {
 // ── KPIs ──────────────────────────────────────────────────────
 async function cargarKPIs() {
   const hoy = hoyISO();
-  const snap = await db.collection('reservas').where('negocio_id','==',NEGOCIO_ID).get();
+  const snap = await db.collection('reservas').get();
   let total=0, hoyN=0, pendientes=0, confirmadas=0, completadas=0, canceladas=0;
   snap.forEach(d => {
     const r = d.data();
@@ -374,16 +390,16 @@ async function cargarReservas() {
   const q      = document.getElementById('f-q')?.value.toLowerCase() || '';
   const fecha  = document.getElementById('f-fecha')?.value || '';
   const estado = document.getElementById('f-estado')?.value || '';
+  const negId  = document.getElementById('f-negocio')?.value || '';
 
-  // Una sola query simple (sin índice compuesto) y filtramos todo lo demás en el cliente
-  const snap = await db.collection('reservas').where('negocio_id','==',NEGOCIO_ID).get();
+  let query = db.collection('reservas').orderBy('fecha','desc').limit(300);
+  if (estado) query = query.where('estado','==',estado);
+  if (negId)  query = query.where('negocio_id','==',negId);
+  if (fecha)  query = db.collection('reservas').where('fecha','==',fecha);
+
+  const snap = await query.get();
   let reservas = [];
   snap.forEach(d => reservas.push({ docId: d.id, ...d.data() }));
-
-  reservas.sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-
-  if (estado) reservas = reservas.filter(r => r.estado === estado);
-  if (fecha)  reservas = reservas.filter(r => r.fecha === fecha);
 
   // Filtro por búsqueda de texto (cliente_nombre, cliente_email, codigo)
   if (q) {
@@ -392,6 +408,10 @@ async function cargarReservas() {
       (r.cliente_email||'').toLowerCase().includes(q) ||
       (r.codigo||'').toLowerCase().includes(q)
     );
+  }
+  // Si hay filtro de fecha junto con estado/negocio
+  if (fecha && (estado || negId)) {
+    reservas = reservas.filter(r => r.fecha === fecha);
   }
 
   cont.textContent = reservas.length + ' resultado(s)';
@@ -431,6 +451,7 @@ async function cargarReservas() {
         <div style="display:flex;align-items:center;gap:6px">
           <div style="width:4px;height:32px;border-radius:3px;background:${srv?.color||'var(--indigo-500)'}"></div>
           <div>
+            <div style="font-size:12px;color:var(--text-muted)">${limpiar(neg?.nombre||'—')}</div>
             <div style="font-weight:600;font-size:13px">${limpiar(srv?.nombre||'—')}</div>
             <div style="font-size:11px;color:var(--text-muted)">${srv?.duracion_min||'—'} min</div>
           </div>
@@ -585,20 +606,22 @@ function abrirModalNuevo() {
   document.getElementById('modal-res-titulo').textContent = 'Nueva reserva';
   ['res-cnombre','res-cemail','res-ctel','res-cnotas','res-notas'].forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
   document.getElementById('res-precio').value = 0;
+  document.getElementById('res-moneda').style.display = 'none';
+  document.getElementById('res-moneda').innerHTML = '';
   document.getElementById('res-estado').value = 'pendiente';
   document.getElementById('res-personas').value = 1;
   document.getElementById('slots-indicador').style.display = 'none';
   document.getElementById('wrap-personas').style.display = 'none';
 
-  document.getElementById('res-servicio').innerHTML = '<option value="">— Seleccioná —</option>';
+  // Poblar select negocio
+  const sel = document.getElementById('res-negocio');
+  sel.innerHTML = '<option value="">— Seleccioná —</option>' +
+    Object.values(NEGOCIOS_MAP).map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+
+  document.getElementById('res-servicio').innerHTML = '<option value="">— Seleccioná negocio primero —</option>';
   document.getElementById('res-profesional').innerHTML = '<option value="">Sin preferencia</option>';
   document.getElementById('res-hora').innerHTML = '<option value="">— Elegí fecha y servicio primero —</option>';
-  document.getElementById('res-medio-pago').innerHTML = '<option value="">— Sin especificar —</option>';
-
-  cargarServiciosSelect(NEGOCIO_ID);
-  cargarProfesionalesSelect(NEGOCIO_ID);
-  cargarMetodosPago(NEGOCIO_ID);
-  cargarMonedaSelect();
+  document.getElementById('res-medio-pago').innerHTML = '<option value="">— Seleccioná negocio primero —</option>';
 
   resetComprobante();
   Modal.open('modal-reserva');
@@ -622,16 +645,21 @@ async function editarReserva(docId) {
   document.getElementById('res-fecha').value    = r.fecha || '';
   document.getElementById('res-estado').value   = r.estado || 'pendiente';
   document.getElementById('res-precio').value   = r.precio_cobrado || 0;
-  cargarMonedaSelect(r.moneda_cobrada);
+  cargarMonedaSelect(r.negocio_id, r.moneda_cobrada);
 
-  // Negocio fijo (es siempre el del gerente logueado)
-  cargarServiciosSelect(NEGOCIO_ID, r.servicio_id);
-  cargarProfesionalesSelect(NEGOCIO_ID, r.profesional_id);
-  cargarMetodosPago(NEGOCIO_ID, r.metodo_pago);
+  // Poblar select negocio
+  const sel = document.getElementById('res-negocio');
+  sel.innerHTML = '<option value="">— Seleccioná —</option>' +
+    Object.values(NEGOCIOS_MAP).map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+  sel.value = r.negocio_id || '';
+
+  cargarServiciosSelect(r.negocio_id, r.servicio_id);
+  cargarProfesionalesSelect(r.negocio_id, r.profesional_id);
+  cargarMetodosPago(r.negocio_id, r.metodo_pago);
   actualizarCampoPersonas(r.servicio_id);
   if (r.cantidad_personas) document.getElementById('res-personas').value = r.cantidad_personas;
 
-  await cargarSlots(NEGOCIO_ID, r.servicio_id, r.profesional_id, r.fecha, r.hora_inicio?.slice(0,5), docId);
+  await cargarSlots(r.negocio_id, r.servicio_id, r.profesional_id, r.fecha, r.hora_inicio?.slice(0,5), docId);
 
   // Mostrar comprobante existente
   if (r.comprobante_url) {
@@ -646,6 +674,37 @@ async function editarReserva(docId) {
   }
 
   Modal.open('modal-reserva');
+}
+
+// ── SELECTORES DINÁMICOS ──────────────────────────────────────
+function onCambioNegocio(negId) {
+  cargarServiciosSelect(negId);
+  cargarProfesionalesSelect(negId);
+  cargarMetodosPago(negId);
+  document.getElementById('res-hora').innerHTML = '<option value="">— Elegí servicio y fecha —</option>';
+  document.getElementById('wrap-personas').style.display = 'none';
+  document.getElementById('res-precio').value = 0;
+  cargarMonedaSelect(negId);
+}
+
+function cargarMonedaSelect(negId, selCodigo=null) {
+  const sel = document.getElementById('res-moneda');
+  const monedas = monedasDelNegocio(NEGOCIOS_MAP[negId], MONEDAS_CATALOGO);
+  if (monedas.length <= 1) {
+    sel.style.display = 'none';
+    sel.innerHTML = monedas.length ? `<option value="${monedas[0].codigo}">${monedas[0].codigo}</option>` : '';
+  } else {
+    sel.style.display = '';
+    sel.innerHTML = monedas.map(m => `<option value="${m.codigo}" ${(selCodigo||monedas.find(x=>x.principal)?.codigo)===m.codigo?'selected':''}>${limpiar(m.simbolo)} ${limpiar(m.codigo)}</option>`).join('');
+  }
+  actualizarLabelPrecioRes();
+}
+
+function actualizarLabelPrecioRes() {
+  const sel = document.getElementById('res-moneda');
+  const cod = sel.value || 'ARS';
+  const m = MONEDAS_CATALOGO.find(x => x.codigo === cod);
+  document.getElementById('res-precio-label').textContent = `Precio cobrado (${m ? m.simbolo : '$'})`;
 }
 
 function cargarServiciosSelect(negId, selId=null) {
@@ -664,30 +723,11 @@ function cargarProfesionalesSelect(negId, selId=null) {
 
 function cargarMetodosPago(negId, selVal=null) {
   const s = document.getElementById('res-medio-pago');
+  if (!negId) { s.innerHTML = '<option value="">— Seleccioná negocio primero —</option>'; return; }
   // Opciones base (se puede expandir con medios de pago de Firestore en módulo de pagos)
   const opciones = ['efectivo','transferencia','mercadopago','billetera'];
   s.innerHTML = '<option value="">— Sin especificar —</option>' +
     opciones.map(o => `<option value="${o}" ${selVal===o?'selected':''}>${o.charAt(0).toUpperCase()+o.slice(1)}</option>`).join('');
-}
-
-function cargarMonedaSelect(selCodigo=null) {
-  const sel = document.getElementById('res-moneda');
-  if (!sel) return;
-  if (MONEDAS_NEGOCIO.length <= 1) {
-    sel.style.display = 'none';
-    sel.innerHTML = MONEDAS_NEGOCIO.length ? `<option value="${MONEDAS_NEGOCIO[0].codigo}">${MONEDAS_NEGOCIO[0].codigo}</option>` : '';
-  } else {
-    sel.style.display = '';
-    sel.innerHTML = MONEDAS_NEGOCIO.map(m => `<option value="${m.codigo}" ${(selCodigo||MONEDAS_NEGOCIO.find(x=>x.principal)?.codigo)===m.codigo?'selected':''}>${limpiar(m.simbolo)} ${limpiar(m.codigo)}</option>`).join('');
-  }
-  actualizarLabelPrecioRes();
-}
-
-function actualizarLabelPrecioRes() {
-  const sel = document.getElementById('res-moneda');
-  const cod = (sel && sel.value) || (MONEDAS_NEGOCIO[0] && MONEDAS_NEGOCIO[0].codigo) || 'ARS';
-  const m = MONEDAS_NEGOCIO.find(x => x.codigo === cod) || MONEDAS_CATALOGO.find(x => x.codigo === cod);
-  document.getElementById('res-precio-label').textContent = `Precio cobrado (${m ? m.simbolo : '$'})`;
 }
 
 function onCambioServicio() {
@@ -701,7 +741,6 @@ function onCambioServicio() {
   }
   intentarCargarSlots();
 }
-
 
 function actualizarCampoPersonas(srvId) {
   const srv = SERVICIOS_MAP[srvId];
@@ -717,10 +756,11 @@ function actualizarCampoPersonas(srvId) {
 }
 
 function intentarCargarSlots() {
+  const negId  = document.getElementById('res-negocio')?.value;
   const srvId  = document.getElementById('res-servicio').value;
   const profId = document.getElementById('res-profesional').value;
   const fecha  = document.getElementById('res-fecha').value;
-  if (srvId && fecha) cargarSlots(NEGOCIO_ID, srvId, profId, fecha);
+  if (srvId && fecha && negId) cargarSlots(negId, srvId, profId, fecha);
 }
 
 // ── SLOTS ─────────────────────────────────────────────────────
@@ -922,13 +962,14 @@ async function guardarReserva() {
   const cemail  = document.getElementById('res-cemail').value.trim();
   const fecha   = document.getElementById('res-fecha').value;
   const horaIni = document.getElementById('res-hora').value;
-  const negId   = NEGOCIO_ID;
+  const negId   = document.getElementById('res-negocio').value;
   const srvId   = document.getElementById('res-servicio').value;
 
   if (!cnombre) { Toast.error('El nombre del cliente es obligatorio'); return; }
   if (!cemail)  { Toast.error('El email del cliente es obligatorio'); return; }
   if (!fecha)   { Toast.error('La fecha es obligatoria'); return; }
   if (!horaIni) { Toast.error('Seleccioná un horario'); return; }
+  if (!negId)   { Toast.error('Seleccioná un negocio'); return; }
   if (!srvId)   { Toast.error('Seleccioná un servicio'); return; }
 
   btn.disabled = true;
@@ -969,7 +1010,7 @@ async function guardarReserva() {
     hora_fin:         horaFin,
     estado,
     precio_cobrado:   parseFloat(document.getElementById('res-precio').value) || 0,
-    moneda_cobrada:   document.getElementById('res-moneda').value || (MONEDAS_NEGOCIO[0] && MONEDAS_NEGOCIO[0].codigo) || 'ARS',
+    moneda_cobrada:   document.getElementById('res-moneda').value || 'ARS',
     metodo_pago:      document.getElementById('res-medio-pago').value || 'efectivo',
     notas_internas:   document.getElementById('res-notas').value.trim(),
     cantidad_personas: parseInt(document.getElementById('res-personas').value) || 1,

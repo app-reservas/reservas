@@ -20,24 +20,20 @@
   <script src="../assets/js/firebase-config.js"></script>
   <script src="../assets/js/helpers.js"></script>
   <script src="../assets/js/sidebar.js"></script>
-  <script src="../assets/js/app.js"></script>
 
   <script>
     let PROFESIONALES_CACHE = [];
-    let NEGOCIO_ACTUAL = null;
+    let NEGOCIOS_ACTIVOS_CACHE = [];
     let SERVICIOS_TODOS_CACHE = [];
 
     (async () => {
-      const usuario = await requireLogin('gerente');
+      const usuario = await requireLogin('superadmin');
 
-      NEGOCIO_ACTUAL = usuario.negocio;
       renderLayoutAdmin({
         titulo: 'Profesionales',
-        subtitulo: 'Profesionales de tu negocio',
+        subtitulo: 'Gestión del staff de cada negocio',
         nombreUsuario: usuario.nombre,
-        rolLabel: 'Gerente',
-        rol: 'gerente',
-        negocio: NEGOCIO_ACTUAL,
+        rolLabel: 'Super Administrador',
         topbarActionsHTML: `
           <button class="btn btn-primary" onclick="abrirModalNuevo()">
             <i class="ti ti-user-plus"></i> Nuevo profesional
@@ -52,30 +48,23 @@
     // ============================================================
     async function cargarProfesionales() {
       const cont = document.getElementById('page-content');
-      if (!cont) return;
       cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
 
-      if (!NEGOCIO_ACTUAL) {
-        cont.innerHTML = `<div style="color:var(--text-muted);text-align:center;padding:40px">Error: negocio no cargado. Recargá la página.</div>`;
-        return;
-      }
-      const negId = NEGOCIO_ACTUAL.id;
+      const [profSnap, negociosSnap, serviciosSnap, reservasSnap] = await Promise.all([
+        db.collection('profesionales').get(),
+        db.collection('negocios').where('activo', '==', true).get(),
+        db.collection('servicios').where('activo', '==', true).get(),
+        db.collection('reservas').get(),
+      ]);
 
-      let profSnap, serviciosSnap, reservasSnap;
-      try {
-        [profSnap, serviciosSnap, reservasSnap] = await Promise.all([
-          db.collection('profesionales').where('negocio_id', '==', negId).get(),
-          db.collection('servicios').where('negocio_id', '==', negId).get(),
-          db.collection('reservas').where('negocio_id', '==', negId).get(),
-        ]);
-      } catch(err) {
-        console.error('cargarProfesionales error:', err);
-        cont.innerHTML = `<div style="color:#ff8787;text-align:center;padding:40px">Error al cargar: ${err.message}</div>`;
-        return;
-      }
-
-      const negociosMap = { [negId]: NEGOCIO_ACTUAL.nombre };
-      const negociosActivos = [NEGOCIO_ACTUAL];
+      const negociosMap = {};
+      const negociosActivos = [];
+      negociosSnap.forEach(d => {
+        negociosMap[d.id] = d.data().nombre;
+        negociosActivos.push({ id: d.id, nombre: d.data().nombre });
+      });
+      negociosActivos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      NEGOCIOS_ACTIVOS_CACHE = negociosActivos;
 
       const serviciosTodos = [];
       const serviciosMap = {};
@@ -127,6 +116,9 @@
       const activos = profesionales.filter(p => p.activo !== false).length;
       const totalReservas = profesionales.reduce((acc, p) => acc + p.total_reservas, 0);
 
+      const opcionesNegFiltro = NEGOCIOS_ACTIVOS_CACHE.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+      const opcionesNegModal  = NEGOCIOS_ACTIVOS_CACHE.map(n => `<option value="${n.id}">${limpiar(n.nombre)}</option>`).join('');
+
       const filasHTML = profesionales.length === 0 ? `
         <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">
           Sin profesionales.<button class="btn btn-primary btn-sm" style="margin-left:10px" onclick="abrirModalNuevo()"><i class="ti ti-plus"></i> Agregar</button>
@@ -147,7 +139,7 @@
               </div>
             </div>
           </td>
-          
+          <td style="color:var(--text-secondary)">${limpiar(p.negocio_nombre)}</td>
           <td>
             ${p.servicios_nombres ? `
               <div style="font-size:12px;color:var(--text-secondary);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${limpiar(p.servicios_nombres)}">
@@ -182,7 +174,11 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title"><i class="ti ti-user-check"></i> Staff / Profesionales</div>
-            <div style="display:flex;gap:10px">
+            <div style="display:flex;gap:10px;flex-wrap:wrap">
+              <select id="filtro-neg" class="form-control" style="width:200px" onchange="filtrarProfesionales()">
+                <option value="">Todos los negocios</option>
+                ${opcionesNegFiltro}
+              </select>
               <div style="position:relative">
                 <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted)"></i>
                 <input type="text" id="buscador" class="form-control" placeholder="Buscar..." style="padding-left:34px;width:180px" oninput="filtrarProfesionales()">
@@ -193,7 +189,7 @@
           <div class="table-wrap">
             <table class="tabla">
               <thead>
-                <tr><th>#</th><th>Profesional</th><th>Servicios que realiza</th><th>Reservas</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
+                <tr><th>#</th><th>Profesional</th><th>Negocio</th><th>Servicios que realiza</th><th>Reservas</th><th>Estado</th><th style="text-align:center">Acciones</th></tr>
               </thead>
               <tbody id="tbody-prof">
                 ${filasHTML}
@@ -217,7 +213,14 @@
                   <label class="form-label">Nombre *</label>
                   <input type="text" id="prof-nombre" class="form-control" placeholder="Carlos López" required>
                 </div>
-                <input type="hidden" id="prof-negocio" value="">
+                <div class="form-group">
+                  <label class="form-label">Negocio *</label>
+                  <select id="prof-negocio" class="form-control" onchange="cargarServiciosDelNegocio(this.value)">
+                    <option value="">— Seleccioná —</option>
+                    ${opcionesNegModal}
+                  </select>
+                </div>
+              </div>
 
               <div class="grid-2">
                 <div class="form-group">
@@ -278,7 +281,7 @@
     // ============================================================
     function filtrarProfesionales() {
       const q = document.getElementById('buscador').value.toLowerCase();
-      const neg = '';  // gerente: sin filtro de negocio
+      const neg = document.getElementById('filtro-neg').value;
       document.querySelectorAll('#tbody-prof tr[data-id]').forEach(r => {
         const mq = !q || r.dataset.nombre.includes(q);
         const mn = !neg || r.dataset.neg === neg;
@@ -315,7 +318,6 @@
       document.getElementById('modal-prof-titulo').textContent = 'Nuevo profesional';
       document.getElementById('form-prof').reset();
       document.getElementById('prof-id').value = '';
-      document.getElementById('prof-negocio').value = NEGOCIO_ACTUAL ? NEGOCIO_ACTUAL.id : '';
       document.getElementById('prof-activo').checked = true;
       document.getElementById('prof-foto-preview').style.display = 'none';
       document.getElementById('prof-foto-url').value = '';
@@ -458,6 +460,6 @@
     }
   </script>
 
-  
+  <script src="../assets/js/app.js"></script>
 </body>
 </html>
