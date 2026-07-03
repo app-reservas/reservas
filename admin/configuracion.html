@@ -23,6 +23,7 @@
 <script>
 let usuarioActual = null;
 let configGlobal  = {};
+let MONEDAS_CACHE = [];
 
 auth.onAuthStateChanged(async user => {
   if (!user) { window.location.href = '../index.html'; return; }
@@ -47,8 +48,108 @@ auth.onAuthStateChanged(async user => {
 
   // Cargar config y renderizar
   await cargarConfig();
+  await cargarMonedas();
   await renderPagina();
 });
+
+// ── Monedas ──────────────────────────────────────────────
+async function cargarMonedas() {
+  try {
+    const snap = await db.collection('monedas').get();
+    if (snap.empty) {
+      // Siembra el peso argentino por defecto para no romper negocios existentes
+      const ref = await db.collection('monedas').add({
+        codigo: 'ARS', nombre: 'Peso Argentino', simbolo: '$', decimales: 2,
+        activa: true, orden: 0, creado_en: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      MONEDAS_CACHE = [{ id: ref.id, codigo: 'ARS', nombre: 'Peso Argentino', simbolo: '$', decimales: 2, activa: true, orden: 0 }];
+      return;
+    }
+    const lista = [];
+    snap.forEach(d => lista.push({ id: d.id, ...d.data() }));
+    lista.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    MONEDAS_CACHE = lista;
+  } catch(e) { MONEDAS_CACHE = []; }
+}
+
+function renderMonedasHTML() {
+  if (!MONEDAS_CACHE.length) return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">Sin monedas creadas.</div>`;
+  return MONEDAS_CACHE.map(m => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:38px;height:38px;border-radius:8px;background:rgba(76,110,245,0.12);border:1px solid rgba(76,110,245,0.3);display:flex;align-items:center;justify-content:center;font-weight:800;color:#748ffc;flex-shrink:0">${limpiar(m.simbolo)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;color:var(--text-primary)">${limpiar(m.nombre)} <span style="color:var(--text-muted);font-weight:400;font-size:12px">(${limpiar(m.codigo)})</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">${m.decimales ?? 2} decimales</div>
+      </div>
+      <button onclick="toggleMonedaActiva('${m.id}')" class="badge-estado ${m.activa !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none;flex-shrink:0">
+        <i class="ti ${m.activa !== false ? 'ti-check' : 'ti-x'}"></i>${m.activa !== false ? 'Activa' : 'Inactiva'}
+      </button>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        <button onclick="abrirModalMoneda('${m.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></button>
+        <button onclick="eliminarMoneda('${m.id}','${escJS(m.nombre)}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`).join('');
+}
+
+function abrirModalMoneda(id = null) {
+  const m = id ? MONEDAS_CACHE.find(x => x.id === id) : null;
+  document.getElementById('moneda-id').value = id || '';
+  document.getElementById('moneda-codigo').value = m ? m.codigo : '';
+  document.getElementById('moneda-nombre').value = m ? m.nombre : '';
+  document.getElementById('moneda-simbolo').value = m ? m.simbolo : '';
+  document.getElementById('moneda-decimales').value = m ? (m.decimales ?? 2) : 2;
+  document.getElementById('moneda-activa').checked = m ? m.activa !== false : true;
+  document.getElementById('modal-moneda-titulo').textContent = m ? 'Editar moneda' : 'Nueva moneda';
+  Modal.open('modal-moneda');
+}
+
+async function guardarMoneda() {
+  const id = document.getElementById('moneda-id').value;
+  const codigo = document.getElementById('moneda-codigo').value.trim().toUpperCase();
+  const nombre = document.getElementById('moneda-nombre').value.trim();
+  const simbolo = document.getElementById('moneda-simbolo').value.trim();
+  const decimales = parseInt(document.getElementById('moneda-decimales').value) || 0;
+  const activa = document.getElementById('moneda-activa').checked;
+  if (!codigo || !nombre || !simbolo) { Toast.error('Completá código, nombre y símbolo.'); return; }
+  const dup = MONEDAS_CACHE.find(x => x.codigo === codigo && x.id !== id);
+  if (dup) { Toast.error(`Ya existe una moneda con el código ${codigo}.`); return; }
+  try {
+    if (id) {
+      await db.collection('monedas').doc(id).update({ codigo, nombre, simbolo, decimales, activa });
+      Toast.success('Moneda actualizada.');
+    } else {
+      const maxOrden = MONEDAS_CACHE.reduce((max, x) => Math.max(max, x.orden ?? -1), -1);
+      await db.collection('monedas').add({ codigo, nombre, simbolo, decimales, activa, orden: maxOrden + 1, creado_en: firebase.firestore.FieldValue.serverTimestamp() });
+      Toast.success('Moneda creada.');
+    }
+    Modal.close('modal-moneda');
+    await cargarMonedas();
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+async function toggleMonedaActiva(id) {
+  const m = MONEDAS_CACHE.find(x => x.id === id);
+  if (!m) return;
+  const nuevo = !(m.activa !== false);
+  try {
+    await db.collection('monedas').doc(id).update({ activa: nuevo });
+    m.activa = nuevo;
+    Toast.success(nuevo ? 'Moneda activada: los gerentes ya pueden elegirla.' : 'Moneda desactivada.');
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+function eliminarMoneda(id, nombre) {
+  confirmar(`¿Eliminar la moneda "${nombre}"? Los negocios que la tengan seleccionada dejarán de mostrarla — asegurate de que ningún negocio la esté usando.`, async () => {
+    try {
+      await db.collection('monedas').doc(id).delete();
+      Toast.success('Moneda eliminada.');
+      await cargarMonedas();
+      await renderPagina();
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
 
 // ── Modales ──────────────────────────────────────────────
 function inyectarModales() {
@@ -144,6 +245,43 @@ function inyectarModales() {
           <button class="btn btn-ghost" onclick="Modal.close('modal-apariencia')">Cancelar</button>
           <button class="btn btn-primary" onclick="guardarApariencia()"><i class="ti ti-device-floppy"></i> Guardar</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL MONEDA -->
+  <div class="modal-overlay" id="modal-moneda">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-moneda-titulo"><i class="ti ti-coin"></i> Nueva moneda</div>
+        <button class="modal-close" onclick="Modal.close('modal-moneda')"><i class="ti ti-x"></i></button>
+      </div>
+      <input type="hidden" id="moneda-id" value="">
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Código *</label>
+          <input type="text" id="moneda-codigo" class="form-control" placeholder="Ej: USD" maxlength="6" style="text-transform:uppercase">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Símbolo *</label>
+          <input type="text" id="moneda-simbolo" class="form-control" placeholder="Ej: U$S" maxlength="6">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nombre *</label>
+        <input type="text" id="moneda-nombre" class="form-control" placeholder="Ej: Dólar estadounidense">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Decimales</label>
+        <input type="number" id="moneda-decimales" class="form-control" value="2" min="0" max="4">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="moneda-activa" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+        <label for="moneda-activa" style="cursor:pointer;color:var(--text-secondary)">Activa (visible para que los gerentes la elijan)</label>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ghost" onclick="Modal.close('modal-moneda')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarMoneda()"><i class="ti ti-device-floppy"></i> Guardar moneda</button>
       </div>
     </div>
   </div>
@@ -266,6 +404,18 @@ async function renderPagina() {
               <i class="ti ti-lock"></i> Cambiar contraseña
             </button>
           </div>
+        </div>
+
+        <!-- MONEDAS -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-coin"></i> Monedas del sistema</div>
+            <button class="btn btn-primary btn-sm" onclick="abrirModalMoneda()"><i class="ti ti-plus"></i> Nueva moneda</button>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+            Creá acá todas las monedas que quieras (pesos, dólares, euros, etc). Las que dejes <strong>activas</strong> son las que cada gerente puede elegir para su negocio (hasta 2 por negocio).
+          </div>
+          <div>${renderMonedasHTML()}</div>
         </div>
 
         <!-- CONFIGURACIÓN GENERAL -->

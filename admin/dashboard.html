@@ -43,16 +43,18 @@
       const inicioSemana = inicioSemanaISO();
 
       // --- Traer reservas (con joins manuales, ya que Firestore no tiene JOIN) ---
-      const [reservasSnap, negociosSnap, serviciosSnap, profesionalesSnap] = await Promise.all([
+      const [reservasSnap, negociosSnap, serviciosSnap, profesionalesSnap, monedasSnap] = await Promise.all([
         db.collection('reservas').get(),
         db.collection('negocios').get(),
         db.collection('servicios').get(),
         db.collection('profesionales').get(),
+        db.collection('monedas').get(),
       ]);
 
       const negocios = {};      negociosSnap.forEach(d => negocios[d.id] = d.data());
       const servicios = {};     serviciosSnap.forEach(d => servicios[d.id] = d.data());
       const profesionales = {}; profesionalesSnap.forEach(d => profesionales[d.id] = d.data());
+      const monedasCatalogo = []; monedasSnap.forEach(d => monedasCatalogo.push({ id: d.id, ...d.data() }));
 
       const reservas = [];
       reservasSnap.forEach(d => reservas.push({ id: d.id, ...d.data() }));
@@ -72,16 +74,22 @@
         return y === anioActual && (m - 1) === mesActual;
       };
 
-      const ingresos_mes = reservas
-        .filter(r => enMesActual(r.fecha) && ['confirmada','completada'].includes(r.estado) && r.pago_validado === true)
-        .reduce((acc, r) => acc + (Number(r.precio_cobrado) || 0), 0);
+      const reservasIngresoMes = reservas
+        .filter(r => enMesActual(r.fecha) && ['confirmada','completada'].includes(r.estado) && r.pago_validado === true);
+      const ingresos_mes_x_moneda = agruparPorMoneda(reservasIngresoMes, r => r.precio_cobrado, r => r.moneda_cobrada);
+      const ingresos_mes = Object.values(ingresos_mes_x_moneda).reduce((a, b) => a + b, 0);
 
-      const pendiente_cobro = reservas
-        .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy)
-        .reduce((acc, r) => acc + (Number(r.precio_cobrado) || 0), 0);
+      const reservasPendCobro = reservas
+        .filter(r => ['pendiente','confirmada','pendiente_pago'].includes(r.estado) && r.pago_validado !== true && r.fecha >= hoy);
+      const pendiente_cobro_x_moneda = agruparPorMoneda(reservasPendCobro, r => r.precio_cobrado, r => r.moneda_cobrada);
+      const pendiente_cobro = Object.values(pendiente_cobro_x_moneda).reduce((a, b) => a + b, 0);
 
       const devoluciones_mes = 0; // (no hay colección de devoluciones todavía)
-      const ingresos_neto = ingresos_mes - devoluciones_mes;
+      const devoluciones_mes_x_moneda = {};
+      const ingresos_neto_x_moneda = { ...ingresos_mes_x_moneda };
+      Object.keys(devoluciones_mes_x_moneda).forEach(cod => {
+        ingresos_neto_x_moneda[cod] = (ingresos_neto_x_moneda[cod] || 0) - devoluciones_mes_x_moneda[cod];
+      });
 
       // --- Por estado (semáforo) ---
       const por_estado = {};
@@ -109,7 +117,7 @@
       const recomendaciones = [];
       if (reservas_pendientes > 5) recomendaciones.push({ ico: 'ti-clock', txt: `Tenés <strong>${reservas_pendientes} reservas pendientes</strong> sin confirmar. Revisalas para no perder clientes.` });
       if (total_negocios === 0) recomendaciones.push({ ico: 'ti-building-store', txt: '<strong>Creá tu primer negocio</strong> para empezar a recibir reservas.' });
-      if (pendiente_cobro > 0) recomendaciones.push({ ico: 'ti-clock', txt: `Hay <strong>$${pendiente_cobro.toLocaleString('es-AR')}</strong> en reservas confirmadas pendientes de cobro.` });
+      if (pendiente_cobro > 0) recomendaciones.push({ ico: 'ti-clock', txt: `Hay <strong>${formatearTotalesPorMoneda(pendiente_cobro_x_moneda, monedasCatalogo)}</strong> en reservas confirmadas pendientes de cobro.` });
       if (recomendaciones.length === 0) recomendaciones.push({ ico: 'ti-circle-check', txt: '<strong>Todo en orden.</strong> El sistema está funcionando correctamente.' });
 
       // ============================================================
@@ -224,9 +232,9 @@
           <div class="kpi-card">
             <div class="kpi-icon green"><i class="ti ti-currency-dollar"></i></div>
             <div>
-              <div class="kpi-value" style="color:${ingresos_neto > 0 ? '#69db7c' : 'var(--text-primary)'}">$${ingresos_neto.toLocaleString('es-AR')}</div>
-              ${devoluciones_mes > 0 ? `<div style="font-size:11px;color:#ff8787">-$${devoluciones_mes.toLocaleString('es-AR')} devuelto</div>` : ''}
-              ${pendiente_cobro > 0 ? `<div style="font-size:11px;color:#ffd43b">+$${pendiente_cobro.toLocaleString('es-AR')} por cobrar</div>` : ''}
+              <div class="kpi-value" style="color:${ingresos_mes > 0 ? '#69db7c' : 'var(--text-primary)'};font-size:20px">${formatearTotalesPorMoneda(ingresos_neto_x_moneda, monedasCatalogo)}</div>
+              ${Object.values(devoluciones_mes_x_moneda).some(v=>v>0) ? `<div style="font-size:11px;color:#ff8787">-${formatearTotalesPorMoneda(devoluciones_mes_x_moneda, monedasCatalogo)} devuelto</div>` : ''}
+              ${pendiente_cobro > 0 ? `<div style="font-size:11px;color:#ffd43b">+${formatearTotalesPorMoneda(pendiente_cobro_x_moneda, monedasCatalogo)} por cobrar</div>` : ''}
               <div class="kpi-label">Ingresos este mes</div>
             </div>
           </div>

@@ -24,6 +24,9 @@
   <script>
     let SERVICIOS_CACHE = [];
     let NEGOCIOS_ACTIVOS_CACHE = [];
+    let NEGOCIOS_MAP_FULL = {};
+    let MONEDAS_CATALOGO = [];
+    let EDITANDO_PRECIOS = {};
 
     const ICONOS_SUGERIDOS = ['ti-scissors','ti-heart','ti-star','ti-sparkles','ti-yoga','ti-dumbbell','ti-stethoscope','ti-eye','ti-music','ti-camera','ti-brush','ti-palette','ti-book','ti-tools','ti-plant','ti-pet'];
     const COLORES_SUGERIDOS = ['#3B5BDB','#7048E8','#1098AD','#2F9E44','#E8590C','#E03131','#862E9C','#F59F00'];
@@ -52,20 +55,27 @@
       const cont = document.getElementById('page-content');
       cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
 
-      const [serviciosSnap, negociosSnap, reservasSnap] = await Promise.all([
+      const [serviciosSnap, negociosSnap, reservasSnap, monedasSnap] = await Promise.all([
         db.collection('servicios').get(),
         db.collection('negocios').where('activo', '==', true).get(),
         db.collection('reservas').get(),
+        db.collection('monedas').get(),
       ]);
 
       const negociosMap = {};
       const negociosActivos = [];
+      NEGOCIOS_MAP_FULL = {};
       negociosSnap.forEach(d => {
         negociosMap[d.id] = d.data().nombre;
         negociosActivos.push({ id: d.id, nombre: d.data().nombre });
+        NEGOCIOS_MAP_FULL[d.id] = { id: d.id, ...d.data() };
       });
       negociosActivos.sort((a, b) => a.nombre.localeCompare(b.nombre));
       NEGOCIOS_ACTIVOS_CACHE = negociosActivos;
+
+      const monedasLista = [];
+      monedasSnap.forEach(d => monedasLista.push({ id: d.id, ...d.data() }));
+      MONEDAS_CATALOGO = monedasLista;
 
       const reservasPorServicio = {};
       reservasSnap.forEach(d => {
@@ -144,7 +154,7 @@
               ${s.duracion_min || 30} min
             </span>
           </td>
-          <td style="font-weight:700;color:var(--indigo-300)">${formatearPrecio(s.precio)}</td>
+          <td style="font-weight:700;color:var(--indigo-300)">${formatearPreciosServicio(s, NEGOCIOS_MAP_FULL[s.negocio_id], MONEDAS_CATALOGO)}</td>
           <td><span style="font-weight:600">${s.total_reservas}</span> <span style="font-size:11px;color:var(--text-muted)">reservas</span></td>
           <td>
             <button onclick="toggleServicio('${s.id}', this)" class="badge-estado ${s.activo !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none">
@@ -214,7 +224,7 @@
                 </div>
                 <div class="form-group">
                   <label class="form-label">Negocio *</label>
-                  <select id="srv-negocio" class="form-control">
+                  <select id="srv-negocio" class="form-control" onchange="actualizarCamposPrecioAdmin()">
                     <option value="">— Seleccioná —</option>
                     ${opcionesNegModal}
                   </select>
@@ -314,9 +324,8 @@
                     <option value="180">3 horas</option>
                   </select>
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Precio ($)</label>
-                  <input type="number" id="srv-precio" class="form-control" placeholder="0.00" min="0" step="0.01" value="0">
+                <div id="precio-fields-inner" style="display:flex;flex-direction:column;gap:10px">
+                  <div style="font-size:12px;color:var(--text-muted)">Elegí un negocio para cargar el precio.</div>
                 </div>
               </div>
 
@@ -385,6 +394,18 @@
       document.getElementById('srv-icono-i').className = 'ti ' + ic;
     }
 
+    function actualizarCamposPrecioAdmin() {
+      const negocioId = document.getElementById('srv-negocio').value;
+      const cont = document.getElementById('precio-fields-inner');
+      if (!negocioId) {
+        cont.innerHTML = `<div style="font-size:12px;color:var(--text-muted)">Elegí un negocio para cargar el precio.</div>`;
+        return;
+      }
+      const negocio = NEGOCIOS_MAP_FULL[negocioId] || {};
+      const monedas = monedasDelNegocio(negocio, MONEDAS_CATALOGO);
+      cont.innerHTML = htmlCamposPrecio(monedas, EDITANDO_PRECIOS);
+    }
+
     // ============================================================
     //  ABRIR MODAL NUEVO
     // ============================================================
@@ -406,6 +427,8 @@
       document.getElementById('srv-icono-i').className = 'ti ti-scissors';
       document.getElementById('srv-pago-efectivo').checked = true;
       document.getElementById('srv-pago-transferencia').checked = false;
+      EDITANDO_PRECIOS = {};
+      actualizarCamposPrecioAdmin();
       Modal.open('modal-srv');
     }
 
@@ -423,7 +446,8 @@
       document.getElementById('srv-desc').value    = s.descripcion || '';
       document.getElementById('srv-msg').value      = s.mensaje_confirmacion || '';
       document.getElementById('srv-dur').value      = s.duracion_min || 30;
-      document.getElementById('srv-precio').value   = s.precio || 0;
+      EDITANDO_PRECIOS = s.precios || (s.precio != null ? { [monedasDelNegocio(NEGOCIOS_MAP_FULL[s.negocio_id], MONEDAS_CATALOGO)[0].codigo]: s.precio } : {});
+      actualizarCamposPrecioAdmin();
       document.getElementById('srv-color').value    = s.color || '#3B5BDB';
       document.getElementById('srv-activo').checked = s.activo !== false;
       document.getElementById('srv-publico').checked = s.publico !== false;
@@ -489,6 +513,10 @@
         if (document.getElementById('srv-pago-efectivo').checked) metodosPago.push('efectivo');
         if (document.getElementById('srv-pago-transferencia').checked) metodosPago.push('transferencia');
 
+        const precios = leerCamposPrecio('precio-fields-inner');
+        const monedasNeg = monedasDelNegocio(NEGOCIOS_MAP_FULL[negocioId], MONEDAS_CATALOGO);
+        const monedaPrincipal = (monedasNeg.find(m => m.principal) || monedasNeg[0]).codigo;
+
         const payload = {
           nombre,
           negocio_id: negocioId,
@@ -501,7 +529,8 @@
           metodos_pago_lista: metodosPago,
           anticipacion_min_horas: parseInt(document.getElementById('srv-anticipacion').value) || 0,
           duracion_min: parseInt(document.getElementById('srv-dur').value) || 30,
-          precio: parseFloat(document.getElementById('srv-precio').value) || 0,
+          precios,
+          precio: precios[monedaPrincipal] || 0,
           color: document.getElementById('srv-color').value || '#3B5BDB',
           activo: document.getElementById('srv-activo').checked,
           publico: document.getElementById('srv-publico').checked,
