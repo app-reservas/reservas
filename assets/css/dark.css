@@ -203,6 +203,7 @@ input, select, textarea, button { font-family: inherit; }
 
 /* ── KPI ── */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+.split-side { display: grid; grid-template-columns: 1fr var(--side-w, 360px); gap: 16px; align-items: flex-start; }
 .kpi-card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: 16px 18px;
@@ -459,7 +460,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 @media (min-width: 1600px) {
   :root { --sidebar-w: 280px; }
   body { font-size: 16px; }
-  .page-content { padding: 32px 40px; }
+  .page-content { padding: 32px 40px; max-width: 2200px; margin: 0 auto; }
   .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
   .kpi-value { font-size: 32px; }
   .kpi-icon { width: 56px; height: 56px; font-size: 28px; }
@@ -496,6 +497,7 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
   /* Grids: todo en una columna */
   .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  .split-side { grid-template-columns: 1fr; }
 
   /* KPIs */
   .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -508,9 +510,18 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   .card { padding: 14px 16px; }
   .card-header { flex-wrap: wrap; gap: 8px; }
 
-  /* Tablas: scroll horizontal */
+  /* Tablas: scroll horizontal, con columna de Acciones siempre visible */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tabla th, .tabla td { padding: 9px 10px; font-size: 12px; white-space: nowrap; }
+  .tabla th:last-child, .tabla td:last-child {
+    position: sticky; right: 0;
+    background: var(--bg-card);
+    box-shadow: -8px 0 8px -8px rgba(0,0,0,0.5);
+  }
+
+  /* Turnos de hoy: si no entra en una fila, que baje a la siguiente en vez de cortarse */
+  .urgente-item { flex-wrap: wrap; row-gap: 8px; }
+  .urgente-acciones { margin-left: auto; }
 
   /* Formularios */
   .form-control { font-size: 16px; padding: 10px 12px; } /* 16px en mobile evita zoom en iOS */
@@ -543,6 +554,11 @@ textarea.form-control { resize: vertical; min-height: 80px; }
 
   /* Page content */
   .page-content { padding: 10px; }
+
+  /* Turnos de hoy: en celular chico, todo en columna */
+  .urgente-item { flex-direction: column; align-items: stretch; gap: 6px; }
+  .urgente-hora { text-align: left; display: flex; align-items: center; gap: 8px; }
+  .urgente-acciones { margin-left: 0; }
 
   /* Cards */
   .card { padding: 12px; }
