@@ -123,18 +123,22 @@ function animarContador(el, fin, pre='', suf='', dur=1000) {
 }
 
 // ── SIDEBAR MÓVIL ──────────────────────────────────────────
+// Usa delegación de eventos en document en vez de buscar el botón
+// directamente: el sidebar se pinta recién cuando Firebase confirma
+// el login (async), que pasa DESPUÉS de DOMContentLoaded. Si acá
+// buscáramos el botón de una, todavía no existiría en el DOM.
 function initSidebarMovil() {
-  const toggle = document.querySelector('.menu-toggle');
-  const sidebar = document.querySelector('.sidebar');
-  const overlay = document.querySelector('.sidebar-overlay');
-  if (!toggle || !sidebar) return;
-  toggle.addEventListener('click', () => {
-    sidebar.classList.toggle('open');
-    overlay && overlay.classList.toggle('open');
-  });
-  overlay && overlay.addEventListener('click', () => {
-    sidebar.classList.remove('open');
-    overlay.classList.remove('open');
+  document.addEventListener('click', (e) => {
+    const toggle = e.target.closest('.menu-toggle');
+    if (toggle) {
+      document.querySelector('.sidebar')?.classList.toggle('open');
+      document.querySelector('.sidebar-overlay')?.classList.toggle('open');
+      return;
+    }
+    if (e.target.closest('.sidebar-overlay')) {
+      document.querySelector('.sidebar')?.classList.remove('open');
+      document.querySelector('.sidebar-overlay')?.classList.remove('open');
+    }
   });
 }
 
