@@ -66,6 +66,31 @@
 .dia-dot { width:8px; height:8px; border-radius:50%; background:var(--indigo-500); flex-shrink:0; transition:background .2s; }
 .dia-dot.off { background: #2a2d4a; }
 
+/* Mobile: cada día se convierte en tarjeta de 2 columnas, sin scroll lateral */
+@media (max-width:600px){
+  #horario-panel .table-wrap { overflow: visible; }
+  .horario-table thead { display:none; }
+  .horario-table tbody { display:block; }
+  .horario-table tr {
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas: "dia toggle" "inicio fin" "boton boton";
+    gap:10px 14px;
+    border:1px solid var(--border); border-radius:10px;
+    padding:12px 14px; margin-bottom:10px; background:var(--bg-surface);
+  }
+  .horario-table tr:hover td { background:none; }
+  .horario-table td { display:block; border:none; padding:0; }
+  .horario-table td:nth-child(1){ grid-area:dia; align-self:center; }
+  .horario-table td:nth-child(2){ grid-area:toggle; justify-self:end; align-self:center; }
+  .horario-table td:nth-child(3){ grid-area:inicio; }
+  .horario-table td:nth-child(4){ grid-area:fin; }
+  .horario-table td:nth-child(5){ grid-area:boton; justify-self:end; }
+  .horario-table td:nth-child(3):before{ content:"Hora inicio"; font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; display:block; margin-bottom:4px; }
+  .horario-table td:nth-child(4):before{ content:"Hora fin"; font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; display:block; margin-bottom:4px; }
+  .horario-table .h-time { width:100%; }
+}
+
 /* Presets */
 .preset-btn { background:var(--bg-card); border:1px solid var(--border-strong); border-radius:8px; color:var(--text-secondary); font-size:12px; padding:5px 12px; cursor:pointer; transition:all .2s; white-space:nowrap; }
 .preset-btn:hover { background:var(--indigo-600); color:#fff; border-color:var(--indigo-600); }
@@ -129,9 +154,9 @@
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 <script src="../assets/js/firebase-config.js"></script>
-<script src="../assets/js/app.js"></script>
+<script src="../assets/js/app.js?v=2"></script>
 <script src="../assets/js/helpers.js"></script>
-<script src="../assets/js/sidebar.js"></script>
+<script src="../assets/js/sidebar.js?v=2"></script>
 <script>
 const DIAS = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
 
