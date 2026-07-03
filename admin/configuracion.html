@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuración — ReservaSystem</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/favicon-16x16.png">
+  <link rel="shortcut icon" href="../assets/img/favicon.ico">
+  <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+<script src="../assets/js/firebase-config.js"></script>
+<script src="../assets/js/app.js?v=2"></script>
+<script src="../assets/js/sidebar.js?v=2"></script>
+<script src="../assets/js/helpers.js"></script>
+<script>
+let usuarioActual = null;
+let configGlobal  = {};
+let MONEDAS_CACHE = [];
+
+auth.onAuthStateChanged(async user => {
+  if (!user) { window.location.href = '../index.html'; return; }
+  const snap = await db.collection('usuarios').doc(user.uid).get();
+  if (!snap.exists || !snap.data().activo || snap.data().rol !== 'superadmin') {
+    auth.signOut(); window.location.href = '../index.html'; return;
+  }
+  usuarioActual = { uid: user.uid, ...snap.data() };
+
+  renderLayoutAdmin({
+    titulo:        'Configuración del sistema',
+    subtitulo:     'Ajustes globales de ReservaSystem',
+    nombreUsuario: usuarioActual.nombre,
+    rolLabel:      'Super Administrador',
+  });
+
+  document.getElementById('page-content').innerHTML =
+    `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+  // Inyectar modales en el body ahora que el DOM está listo
+  inyectarModales();
+
+  // Cargar config y renderizar
+  await cargarConfig();
+  await cargarMonedas();
+  await renderPagina();
+});
+
+// ── Monedas ──────────────────────────────────────────────
+async function cargarMonedas() {
+  try {
+    const snap = await db.collection('monedas').get();
+    if (snap.empty) {
+      // Siembra el peso argentino por defecto para no romper negocios existentes
+      const ref = await db.collection('monedas').add({
+        codigo: 'ARS', nombre: 'Peso Argentino', simbolo: '$', decimales: 2,
+        activa: true, orden: 0, creado_en: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      MONEDAS_CACHE = [{ id: ref.id, codigo: 'ARS', nombre: 'Peso Argentino', simbolo: '$', decimales: 2, activa: true, orden: 0 }];
+      return;
+    }
+    const lista = [];
+    snap.forEach(d => lista.push({ id: d.id, ...d.data() }));
+    lista.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    MONEDAS_CACHE = lista;
+  } catch(e) { MONEDAS_CACHE = []; }
+}
+
+function renderMonedasHTML() {
+  if (!MONEDAS_CACHE.length) return `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">Sin monedas creadas.</div>`;
+  return MONEDAS_CACHE.map(m => `
+    <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="width:38px;height:38px;border-radius:8px;background:rgba(76,110,245,0.12);border:1px solid rgba(76,110,245,0.3);display:flex;align-items:center;justify-content:center;font-weight:800;color:#748ffc;flex-shrink:0">${limpiar(m.simbolo)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;color:var(--text-primary)">${limpiar(m.nombre)} <span style="color:var(--text-muted);font-weight:400;font-size:12px">(${limpiar(m.codigo)})</span></div>
+        <div style="font-size:11px;color:var(--text-muted)">${m.decimales ?? 2} decimales</div>
+      </div>
+      <button onclick="toggleMonedaActiva('${m.id}')" class="badge-estado ${m.activa !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none;flex-shrink:0">
+        <i class="ti ${m.activa !== false ? 'ti-check' : 'ti-x'}"></i>${m.activa !== false ? 'Activa' : 'Inactiva'}
+      </button>
+      <div style="display:flex;gap:4px;flex-shrink:0">
+        <button onclick="abrirModalMoneda('${m.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar"><i class="ti ti-edit"></i></button>
+        <button onclick="eliminarMoneda('${m.id}','${escJS(m.nombre)}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`).join('');
+}
+
+function abrirModalMoneda(id = null) {
+  const m = id ? MONEDAS_CACHE.find(x => x.id === id) : null;
+  document.getElementById('moneda-id').value = id || '';
+  document.getElementById('moneda-codigo').value = m ? m.codigo : '';
+  document.getElementById('moneda-nombre').value = m ? m.nombre : '';
+  document.getElementById('moneda-simbolo').value = m ? m.simbolo : '';
+  document.getElementById('moneda-decimales').value = m ? (m.decimales ?? 2) : 2;
+  document.getElementById('moneda-activa').checked = m ? m.activa !== false : true;
+  document.getElementById('modal-moneda-titulo').textContent = m ? 'Editar moneda' : 'Nueva moneda';
+  Modal.open('modal-moneda');
+}
+
+async function guardarMoneda() {
+  const id = document.getElementById('moneda-id').value;
+  const codigo = document.getElementById('moneda-codigo').value.trim().toUpperCase();
+  const nombre = document.getElementById('moneda-nombre').value.trim();
+  const simbolo = document.getElementById('moneda-simbolo').value.trim();
+  const decimales = parseInt(document.getElementById('moneda-decimales').value) || 0;
+  const activa = document.getElementById('moneda-activa').checked;
+  if (!codigo || !nombre || !simbolo) { Toast.error('Completá código, nombre y símbolo.'); return; }
+  const dup = MONEDAS_CACHE.find(x => x.codigo === codigo && x.id !== id);
+  if (dup) { Toast.error(`Ya existe una moneda con el código ${codigo}.`); return; }
+  try {
+    if (id) {
+      await db.collection('monedas').doc(id).update({ codigo, nombre, simbolo, decimales, activa });
+      Toast.success('Moneda actualizada.');
+    } else {
+      const maxOrden = MONEDAS_CACHE.reduce((max, x) => Math.max(max, x.orden ?? -1), -1);
+      await db.collection('monedas').add({ codigo, nombre, simbolo, decimales, activa, orden: maxOrden + 1, creado_en: firebase.firestore.FieldValue.serverTimestamp() });
+      Toast.success('Moneda creada.');
+    }
+    Modal.close('modal-moneda');
+    await cargarMonedas();
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+async function toggleMonedaActiva(id) {
+  const m = MONEDAS_CACHE.find(x => x.id === id);
+  if (!m) return;
+  const nuevo = !(m.activa !== false);
+  try {
+    await db.collection('monedas').doc(id).update({ activa: nuevo });
+    m.activa = nuevo;
+    Toast.success(nuevo ? 'Moneda activada: los gerentes ya pueden elegirla.' : 'Moneda desactivada.');
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+function eliminarMoneda(id, nombre) {
+  confirmar(`¿Eliminar la moneda "${nombre}"? Los negocios que la tengan seleccionada dejarán de mostrarla — asegurate de que ningún negocio la esté usando.`, async () => {
+    try {
+      await db.collection('monedas').doc(id).delete();
+      Toast.success('Moneda eliminada.');
+      await cargarMonedas();
+      await renderPagina();
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
+
+// ── Modales ──────────────────────────────────────────────
+function inyectarModales() {
+  if (document.getElementById('modal-pass')) return; // ya inyectados
+
+  document.body.insertAdjacentHTML('beforeend', `
+
+  <!-- MODAL CAMBIAR CONTRASEÑA -->
+  <div class="modal-overlay" id="modal-pass">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div class="modal-title"><i class="ti ti-lock"></i> Cambiar contraseña</div>
+        <button class="modal-close" onclick="Modal.close('modal-pass')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Contraseña actual *</label>
+        <input type="password" id="pass-actual" class="form-control" placeholder="••••••••">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nueva contraseña *</label>
+        <input type="password" id="pass-nueva" class="form-control" placeholder="Mínimo 6 caracteres">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Repetir nueva contraseña *</label>
+        <input type="password" id="pass-repetir" class="form-control" placeholder="Repetí la contraseña">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ghost" onclick="Modal.close('modal-pass')">Cancelar</button>
+        <button class="btn btn-primary" onclick="cambiarPassword()"><i class="ti ti-lock-check"></i> Cambiar contraseña</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL APARIENCIA -->
+  <div class="modal-overlay" id="modal-apariencia">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <div class="modal-title"><i class="ti ti-palette"></i> Apariencia del sistema</div>
+        <button class="modal-close" onclick="Modal.close('modal-apariencia')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Logo del sistema</label>
+        <div id="logo-preview-wrap" style="display:none;align-items:center;gap:10px;margin-bottom:10px">
+          <img id="logo-preview-img" src="" style="max-height:52px;max-width:120px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);background:#0d0e14;padding:4px;object-fit:contain">
+          <button type="button" class="btn btn-ghost btn-sm" style="color:#ff8787;padding:4px 8px" onclick="borrarLogo()">
+            <i class="ti ti-x"></i> Quitar
+          </button>
+        </div>
+        <label for="inp-logo" style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:10px;border:2px dashed rgba(255,255,255,0.15);border-radius:8px">
+          <i class="ti ti-upload" style="color:#74c0fc;font-size:20px"></i>
+          <span style="font-size:12px;color:var(--text-muted)">Subir imagen (PNG, JPG, SVG, WebP)</span>
+        </label>
+        <input type="file" id="inp-logo" accept="image/*" style="display:none" onchange="previewLogo(this)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Color de acento <span style="font-size:11px;color:var(--text-muted)">(botones, links, badges)</span></label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="color" id="inp-color-acento" value="#4c6ef5"
+                 style="width:44px;height:36px;border:none;background:none;cursor:pointer;padding:0"
+                 oninput="sincColorPicker('acento')">
+          <input type="text" id="txt-color-acento" class="form-control" style="width:110px;font-family:monospace"
+                 value="#4c6ef5" oninput="sincColorTexto('acento')" placeholder="#4c6ef5">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="resetColor('acento','#4c6ef5')">Reset</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Fondo del menú lateral</label>
+        <div style="display:flex;align-items:center;gap:10px">
+          <input type="color" id="inp-color-sidebar" value="#0d0e14"
+                 style="width:44px;height:36px;border:none;background:none;cursor:pointer;padding:0"
+                 oninput="sincColorPicker('sidebar')">
+          <input type="text" id="txt-color-sidebar" class="form-control" style="width:110px;font-family:monospace"
+                 value="#0d0e14" oninput="sincColorTexto('sidebar')" placeholder="#0d0e14">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="resetColor('sidebar','#0d0e14')">Reset</button>
+        </div>
+      </div>
+      <div style="display:flex;border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.1);margin-bottom:14px;height:64px">
+        <div id="prev-sidebar-bg" style="width:54px;background:#0d0e14;display:flex;align-items:center;justify-content:center">
+          <div id="prev-accent-dot" style="width:20px;height:20px;border-radius:50%;background:#4c6ef5"></div>
+        </div>
+        <div style="flex:1;background:var(--bg-base);display:flex;align-items:center;padding:0 14px">
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div id="prev-bar1" style="height:8px;width:80px;border-radius:4px;background:#4c6ef540"></div>
+            <div style="height:6px;width:55px;border-radius:4px;background:rgba(255,255,255,0.08)"></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+        <button class="btn btn-ghost btn-sm" style="color:#ff8787" onclick="resetearApariencia()">
+          <i class="ti ti-refresh"></i> Restaurar original
+        </button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" onclick="Modal.close('modal-apariencia')">Cancelar</button>
+          <button class="btn btn-primary" onclick="guardarApariencia()"><i class="ti ti-device-floppy"></i> Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL MONEDA -->
+  <div class="modal-overlay" id="modal-moneda">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-moneda-titulo"><i class="ti ti-coin"></i> Nueva moneda</div>
+        <button class="modal-close" onclick="Modal.close('modal-moneda')"><i class="ti ti-x"></i></button>
+      </div>
+      <input type="hidden" id="moneda-id" value="">
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Código *</label>
+          <input type="text" id="moneda-codigo" class="form-control" placeholder="Ej: USD" maxlength="6" style="text-transform:uppercase">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Símbolo *</label>
+          <input type="text" id="moneda-simbolo" class="form-control" placeholder="Ej: U$S" maxlength="6">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nombre *</label>
+        <input type="text" id="moneda-nombre" class="form-control" placeholder="Ej: Dólar estadounidense">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Decimales</label>
+        <input type="number" id="moneda-decimales" class="form-control" value="2" min="0" max="4">
+      </div>
+      <div class="form-group" style="display:flex;align-items:center;gap:10px">
+        <input type="checkbox" id="moneda-activa" checked style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+        <label for="moneda-activa" style="cursor:pointer;color:var(--text-secondary)">Activa (visible para que los gerentes la elijan)</label>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ghost" onclick="Modal.close('modal-moneda')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarMoneda()"><i class="ti ti-device-floppy"></i> Guardar moneda</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL FIRMA DEL DEV -->
+  <div class="modal-overlay" id="modal-dev">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <div class="modal-title"><i class="ti ti-code"></i> Firma del desarrollador</div>
+        <button class="modal-close" onclick="Modal.close('modal-dev')"><i class="ti ti-x"></i></button>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+        Aparece al pie de cada pantalla del sistema.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Nombre / Empresa</label>
+        <input type="text" id="dev-nombre" class="form-control" placeholder="Ej: Tu Nombre o Empresa" oninput="actualizarPrevDev()">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Celular / WhatsApp</label>
+        <input type="text" id="dev-tel" class="form-control" placeholder="Ej: +54 9 351 123-4567" oninput="actualizarPrevDev()">
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">El número se convierte en link de WhatsApp automáticamente</div>
+      </div>
+      <div style="padding:10px 12px;background:rgba(116,192,252,0.08);border:1px solid rgba(116,192,252,0.2);border-radius:8px;margin-bottom:14px;font-size:12px;color:var(--text-secondary)">
+        <i class="ti ti-eye" style="color:#74c0fc"></i> Vista previa:&nbsp;
+        <span style="font-size:11px;color:var(--text-muted)">Desarrollado por </span>
+        <strong id="prev-dev-nombre" style="color:var(--text-primary)">—</strong>
+        <span id="prev-dev-tel-wrap" style="display:none">
+          &nbsp;·&nbsp;<i class="ti ti-brand-whatsapp" style="color:#69db7c;vertical-align:-2px"></i>
+          <span id="prev-dev-tel"></span>
+        </span>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="Modal.close('modal-dev')">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarFirmaDev()"><i class="ti ti-device-floppy"></i> Guardar firma</button>
+      </div>
+    </div>
+  </div>
+  `);
+}
+
+// ── Cargar configuración ─────────────────────────────────
+async function cargarConfig() {
+  try {
+    const snap = await db.collection('configuracion').doc('global').get();
+    configGlobal = snap.exists ? snap.data() : {};
+  } catch(e) { configGlobal = {}; }
+}
+
+// ── Stats ────────────────────────────────────────────────
+async function obtenerStats() {
+  try {
+    const [usSnap, negSnap, resSnap, srvSnap, profSnap] = await Promise.all([
+      db.collection('usuarios').get(),
+      db.collection('negocios').get(),
+      db.collection('reservas').get(),
+      db.collection('servicios').get(),
+      db.collection('profesionales').get(),
+    ]);
+    return { usuarios: usSnap.size, negocios: negSnap.size, reservas: resSnap.size, servicios: srvSnap.size, profesionales: profSnap.size };
+  } catch(e) { return { usuarios:0, negocios:0, reservas:0, servicios:0, profesionales:0 }; }
+}
+
+// ── Render ───────────────────────────────────────────────
+async function renderPagina() {
+  const stats    = await obtenerStats();
+  const devNombre = configGlobal.dev_nombre || '';
+  const devTel    = configGlobal.dev_tel    || '';
+  const logoUrl   = configGlobal.logo_url   || '';
+
+  document.getElementById('page-content').innerHTML = `
+    <!-- KPIs -->
+    <div class="kpi-grid mb-6">
+      <div class="kpi-card">
+        <div class="kpi-icon indigo"><i class="ti ti-users"></i></div>
+        <div><div class="kpi-value">${stats.usuarios}</div><div class="kpi-label">Usuarios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon green"><i class="ti ti-building-store"></i></div>
+        <div><div class="kpi-value">${stats.negocios}</div><div class="kpi-label">Negocios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon cyan"><i class="ti ti-calendar-check"></i></div>
+        <div><div class="kpi-value">${stats.reservas}</div><div class="kpi-label">Reservas</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon amber"><i class="ti ti-tag"></i></div>
+        <div><div class="kpi-value">${stats.servicios}</div><div class="kpi-label">Servicios</div></div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon pink"><i class="ti ti-user-star"></i></div>
+        <div><div class="kpi-value">${stats.profesionales}</div><div class="kpi-label">Profesionales</div></div>
+      </div>
+    </div>
+
+    <div class="split-side">
+
+      <!-- COLUMNA IZQUIERDA -->
+      <div>
+
+        <!-- MI PERFIL -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-user-circle"></i> Mi perfil</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;padding:16px;background:var(--bg-surface);border-radius:10px;border:1px solid var(--border);flex-wrap:wrap">
+            <div style="width:60px;height:60px;border-radius:50%;background:rgba(76,110,245,0.15);border:2px solid rgba(76,110,245,0.3);display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700;color:#748ffc;flex-shrink:0">
+              ${(usuarioActual.nombre||'S').charAt(0).toUpperCase()}
+            </div>
+            <div style="flex:1;min-width:180px">
+              <div style="font-size:18px;font-weight:700;overflow-wrap:break-word">${limpiar(usuarioActual.nombre||'')}</div>
+              <div style="font-size:13px;color:var(--text-muted);overflow-wrap:break-word">${limpiar(usuarioActual.email||'')}</div>
+              <div style="margin-top:4px">
+                <span style="background:rgba(76,110,245,0.15);color:#748ffc;border:1px solid rgba(76,110,245,0.3);padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">
+                  <i class="ti ti-shield-check"></i> Super Administrador
+                </span>
+              </div>
+            </div>
+            <button class="btn btn-ghost btn-sm" onclick="Modal.open('modal-pass')">
+              <i class="ti ti-lock"></i> Cambiar contraseña
+            </button>
+          </div>
+        </div>
+
+        <!-- MONEDAS -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-coin"></i> Monedas del sistema</div>
+            <button class="btn btn-primary btn-sm" onclick="abrirModalMoneda()"><i class="ti ti-plus"></i> Nueva moneda</button>
+          </div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">
+            Creá acá todas las monedas que quieras (pesos, dólares, euros, etc). Las que dejes <strong>activas</strong> son las que cada gerente puede elegir para su negocio (hasta 2 por negocio).
+          </div>
+          <div>${renderMonedasHTML()}</div>
+        </div>
+
+        <!-- CONFIGURACIÓN GENERAL -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-settings"></i> Configuración general</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Nombre del sistema</label>
+            <input type="text" id="cfg-nombre" class="form-control"
+                   value="${limpiar(configGlobal.sistema_nombre || 'ReservaSystem')}"
+                   placeholder="Ej: MiSistema de Turnos">
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Aparece en el título del navegador y en el sidebar</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Zona horaria</label>
+            <select id="cfg-timezone" class="form-control">
+              ${[
+                ['America/Argentina/Buenos_Aires','Argentina (Buenos Aires)'],
+                ['America/Argentina/Cordoba','Argentina (Córdoba)'],
+                ['America/Santiago','Chile (Santiago)'],
+                ['America/Lima','Perú (Lima)'],
+                ['America/Bogota','Colombia (Bogotá)'],
+                ['America/Montevideo','Uruguay (Montevideo)'],
+                ['America/Asuncion','Paraguay (Asunción)'],
+                ['America/La_Paz','Bolivia (La Paz)'],
+                ['America/Mexico_City','México (CDMX)'],
+                ['Europe/Madrid','España (Madrid)'],
+              ].map(([v,l]) => `<option value="${v}" ${(configGlobal.timezone||'America/Argentina/Buenos_Aires')===v?'selected':''}>${l}</option>`).join('')}
+            </select>
+          </div>
+          <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="guardarConfigGeneral()">
+              <i class="ti ti-device-floppy"></i> Guardar configuración
+            </button>
+          </div>
+        </div>
+
+        <!-- URL DEL SISTEMA -->
+        <div class="card mb-4">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-link"></i> URL del sistema</div>
+          </div>
+          <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+            El sistema está alojado en GitHub Pages — siempre online, sin necesitar encender ninguna PC.
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px">
+            <code id="url-sistema" style="flex:1;background:var(--bg-surface);padding:10px 14px;border-radius:8px;border:1px solid var(--border);color:#748ffc;font-size:13px;word-break:break-all">
+              ${window.location.origin + window.location.pathname.replace('/admin/configuracion.html','')}
+            </code>
+            <button onclick="navigator.clipboard.writeText(document.getElementById('url-sistema').textContent.trim()).then(()=>Toast.success('URL copiada.'))" class="btn btn-ghost btn-sm">
+              <i class="ti ti-copy"></i>
+            </button>
+          </div>
+          <div style="padding:12px 14px;border-radius:8px;background:rgba(105,219,124,0.06);border:1px solid rgba(105,219,124,0.2)">
+            <div style="font-size:12px;color:#69db7c;font-weight:600;margin-bottom:4px"><i class="ti ti-cloud-check"></i> Sistema 100% en la nube</div>
+            <div style="font-size:12px;color:var(--text-secondary)">
+              A diferencia de XAMPP, este sistema corre en Firebase + GitHub Pages — accesible desde cualquier dispositivo, en cualquier momento, sin servidor local.
+            </div>
+          </div>
+        </div>
+
+        <!-- MANTENIMIENTO -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-tool"></i> Mantenimiento</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">
+            <div style="padding:14px;background:var(--bg-surface);border-radius:10px;border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-database-export" style="color:#748ffc"></i> Exportar datos</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Descargá un respaldo JSON de todas las reservas</div>
+              <button class="btn btn-ghost btn-sm" onclick="exportarReservas()"><i class="ti ti-download"></i> Descargar JSON</button>
+            </div>
+            <div style="padding:14px;background:var(--bg-surface);border-radius:10px;border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-bell-off" style="color:#ffd43b"></i> Limpiar notificaciones</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Borrá todas las notificaciones del sistema</div>
+              <button class="btn btn-warning btn-sm" onclick="limpiarNotificaciones()"><i class="ti ti-trash"></i> Limpiar</button>
+            </div>
+            <div style="padding:14px;background:var(--bg-surface);border-radius:10px;border:1px solid var(--border)">
+              <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary)"><i class="ti ti-logout" style="color:#ff8787"></i> Cerrar sesión</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Salir del panel de administración</div>
+              <button class="btn btn-ghost btn-sm" style="color:#ff8787" onclick="confirmar('¿Cerrar sesión?',()=>auth.signOut().then(()=>window.location.href='../index.html'))">
+                <i class="ti ti-logout"></i> Salir
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- COLUMNA DERECHA -->
+      <div>
+
+        <!-- INFO DEL SISTEMA -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title"><i class="ti ti-info-circle"></i> Info del sistema</div></div>
+          ${[
+            ['Sistema',      'ReservaSystem v1.0'],
+            ['Base de datos','Firebase Firestore'],
+            ['Archivos',     'Cloudinary CDN'],
+            ['Hosting',      'GitHub Pages'],
+            ['Auth',         'Firebase Auth'],
+          ].map(([l,v]) => `
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">
+            <span style="color:var(--text-muted)">${l}</span>
+            <span style="font-weight:600;color:#748ffc">${v}</span>
+          </div>`).join('')}
+        </div>
+
+        <!-- ESTADÍSTICAS -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title"><i class="ti ti-chart-pie"></i> Estadísticas</div></div>
+          ${[
+            ['Usuarios',       stats.usuarios,      'ti-users',          '#74c0fc'],
+            ['Negocios',       stats.negocios,      'ti-building-store', '#69db7c'],
+            ['Reservas',       stats.reservas,      'ti-calendar-check', '#748ffc'],
+            ['Servicios',      stats.servicios,     'ti-tag',            '#ffd43b'],
+            ['Profesionales',  stats.profesionales, 'ti-user-star',      '#f783ac'],
+          ].map(([l,v,ico,col]) => `
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+            <div style="width:36px;height:36px;border-radius:8px;background:${col}22;display:flex;align-items:center;justify-content:center;color:${col}">
+              <i class="ti ${ico}"></i>
+            </div>
+            <div style="flex:1;font-size:13px;color:var(--text-muted)">${l}</div>
+            <div style="font-size:20px;font-weight:800;color:${col}">${v}</div>
+          </div>`).join('')}
+        </div>
+
+        <!-- ACCIONES RÁPIDAS -->
+        <div class="card mb-4">
+          <div class="card-header"><div class="card-title"><i class="ti ti-bolt"></i> Acciones rápidas</div></div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <a href="negocios.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-building-store"></i> Gestionar negocios</a>
+            <a href="usuarios.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-users"></i> Gestionar usuarios</a>
+            <a href="reportes.html"       class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-chart-bar"></i> Ver reportes</a>
+            <a href="notificaciones.html" class="btn btn-ghost" style="justify-content:flex-start;gap:8px"><i class="ti ti-bell"></i> Notificaciones</a>
+          </div>
+        </div>
+
+        <!-- APARIENCIA -->
+        <div class="card mb-4" style="border-color:rgba(116,192,252,0.25);background:rgba(116,192,252,0.04)">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-palette" style="color:#74c0fc"></i> Apariencia</div>
+            <button class="btn btn-ghost btn-sm" onclick="abrirApariencia()"><i class="ti ti-edit"></i> Editar</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            <div style="width:24px;height:24px;border-radius:6px;background:${configGlobal.color_acento||'#4c6ef5'};flex-shrink:0"></div>
+            <span style="font-size:12px;color:var(--text-muted)">Acento: <code style="color:var(--text-primary)">${configGlobal.color_acento||'#4c6ef5'}</code></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="width:24px;height:24px;border-radius:6px;background:${configGlobal.color_sidebar||'#0d0e14'};border:1px solid rgba(255,255,255,0.1);flex-shrink:0"></div>
+            <span style="font-size:12px;color:var(--text-muted)">Sidebar: <code style="color:var(--text-primary)">${configGlobal.color_sidebar||'#0d0e14'}</code></span>
+          </div>
+          ${logoUrl ? `<div style="margin-top:10px"><img src="${logoUrl}" style="max-height:36px;max-width:90px;border-radius:5px;border:1px solid rgba(255,255,255,0.1);background:#0d0e14;padding:3px;object-fit:contain"></div>` : ''}
+        </div>
+
+        <!-- FIRMA DEL DEV -->
+        <div class="card" style="border-color:rgba(116,192,252,0.25);background:rgba(116,192,252,0.04)">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-code" style="color:#74c0fc"></i> Firma del desarrollador</div>
+            <button class="btn btn-ghost btn-sm" onclick="abrirFirmaDev()"><i class="ti ti-edit"></i> Editar</button>
+          </div>
+          ${devNombre
+            ? `<div style="font-size:13px;color:var(--text-secondary)">
+                 <span style="color:var(--text-muted)">Desarrollado por </span>
+                 <strong style="color:var(--text-primary)">${limpiar(devNombre)}</strong>
+                 ${devTel ? `<span style="color:var(--text-muted)"> · </span><i class="ti ti-brand-whatsapp" style="color:#69db7c;vertical-align:-2px"></i> ${limpiar(devTel)}` : ''}
+               </div>`
+            : `<div style="font-size:12px;color:var(--text-muted)">Sin firma configurada — hacé clic en Editar</div>`
+          }
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
+// ── Guardar config general ───────────────────────────────
+async function guardarConfigGeneral() {
+  const nombre   = document.getElementById('cfg-nombre')?.value.trim();
+  const timezone = document.getElementById('cfg-timezone')?.value;
+  if (!nombre) { Toast.error('El nombre del sistema es obligatorio.'); return; }
+  try {
+    await db.collection('configuracion').doc('global').set({ sistema_nombre: nombre, timezone }, { merge: true });
+    configGlobal.sistema_nombre = nombre;
+    configGlobal.timezone       = timezone;
+    Toast.success('Configuración guardada correctamente.');
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+// ── Cambiar contraseña ───────────────────────────────────
+async function cambiarPassword() {
+  const actual  = document.getElementById('pass-actual')?.value;
+  const nueva   = document.getElementById('pass-nueva')?.value;
+  const repetir = document.getElementById('pass-repetir')?.value;
+  if (!actual || !nueva || !repetir) { Toast.error('Completá todos los campos.'); return; }
+  if (nueva !== repetir) { Toast.error('Las contraseñas nuevas no coinciden.'); return; }
+  if (nueva.length < 6)  { Toast.error('La contraseña debe tener al menos 6 caracteres.'); return; }
+  try {
+    const credential = firebase.auth.EmailAuthProvider.credential(usuarioActual.email, actual);
+    await auth.currentUser.reauthenticateWithCredential(credential);
+    await auth.currentUser.updatePassword(nueva);
+    Toast.success('Contraseña cambiada correctamente.');
+    Modal.close('modal-pass');
+    ['pass-actual','pass-nueva','pass-repetir'].forEach(id => { const el = document.getElementById(id); if(el) el.value=''; });
+  } catch(e) {
+    if (e.code === 'auth/wrong-password') Toast.error('La contraseña actual es incorrecta.');
+    else Toast.error('Error: ' + e.message);
+  }
+}
+
+// ── Apariencia ───────────────────────────────────────────
+function abrirApariencia() {
+  const ac = configGlobal.color_acento  || '#4c6ef5';
+  const sb = configGlobal.color_sidebar || '#0d0e14';
+  document.getElementById('inp-color-acento').value  = ac;
+  document.getElementById('txt-color-acento').value  = ac;
+  document.getElementById('inp-color-sidebar').value = sb;
+  document.getElementById('txt-color-sidebar').value = sb;
+  actualizarPrevApariencia();
+  const logoUrl = configGlobal.logo_url || '';
+  document.getElementById('logo-preview-wrap').style.display = logoUrl ? 'flex' : 'none';
+  if (logoUrl) document.getElementById('logo-preview-img').src = logoUrl;
+  Modal.open('modal-apariencia');
+}
+async function guardarApariencia() {
+  const colorAcento  = document.getElementById('txt-color-acento').value.trim();
+  const colorSidebar = document.getElementById('txt-color-sidebar').value.trim();
+  const hexReg = /^#[0-9a-fA-F]{6}$/;
+  if (!hexReg.test(colorAcento))  { Toast.error('Color de acento inválido.'); return; }
+  if (!hexReg.test(colorSidebar)) { Toast.error('Color de sidebar inválido.'); return; }
+  let logoUrl = configGlobal.logo_url || '';
+  const file = document.getElementById('inp-logo')?.files[0];
+  if (file) {
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_PRESET);
+      fd.append('folder', 'reservas/logos');
+      const resp = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`, { method:'POST', body:fd });
+      const data = await resp.json();
+      if (data.secure_url) logoUrl = data.secure_url;
+      else throw new Error('Sin URL de Cloudinary');
+    } catch(e) { Toast.error('Error subiendo logo: ' + e.message); return; }
+  }
+  try {
+    await db.collection('configuracion').doc('global').set({ color_acento: colorAcento, color_sidebar: colorSidebar, logo_url: logoUrl }, { merge: true });
+    configGlobal.color_acento  = colorAcento;
+    configGlobal.color_sidebar = colorSidebar;
+    configGlobal.logo_url      = logoUrl;
+    Toast.success('Apariencia guardada.');
+    Modal.close('modal-apariencia');
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+async function resetearApariencia() {
+  confirmar('¿Restaurar la apariencia original?', async () => {
+    try {
+      await db.collection('configuracion').doc('global').set({ color_acento:'#4c6ef5', color_sidebar:'#0d0e14', logo_url:'' }, { merge:true });
+      Object.assign(configGlobal, { color_acento:'#4c6ef5', color_sidebar:'#0d0e14', logo_url:'' });
+      Toast.success('Apariencia restaurada.');
+      Modal.close('modal-apariencia');
+      await renderPagina();
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
+function previewLogo(input) {
+  const file = input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('logo-preview-wrap').style.display = 'flex';
+    document.getElementById('logo-preview-img').src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function borrarLogo() {
+  document.getElementById('logo-preview-wrap').style.display = 'none';
+  document.getElementById('logo-preview-img').src = '';
+  document.getElementById('inp-logo').value = '';
+  configGlobal.logo_url = '';
+}
+function sincColorPicker(cual) {
+  const p = document.getElementById('inp-color-'+cual);
+  const t = document.getElementById('txt-color-'+cual);
+  if (t) t.value = p.value;
+  actualizarPrevApariencia();
+}
+function sincColorTexto(cual) {
+  const t = document.getElementById('txt-color-'+cual);
+  const p = document.getElementById('inp-color-'+cual);
+  if (/^#[0-9a-fA-F]{6}$/.test(t.value.trim())) p.value = t.value.trim();
+  actualizarPrevApariencia();
+}
+function resetColor(cual, def) {
+  document.getElementById('inp-color-'+cual).value = def;
+  document.getElementById('txt-color-'+cual).value = def;
+  actualizarPrevApariencia();
+}
+function actualizarPrevApariencia() {
+  const ac = document.getElementById('inp-color-acento')?.value  || '#4c6ef5';
+  const sb = document.getElementById('inp-color-sidebar')?.value || '#0d0e14';
+  const bg  = document.getElementById('prev-sidebar-bg');
+  const dot = document.getElementById('prev-accent-dot');
+  const bar = document.getElementById('prev-bar1');
+  if (bg)  bg.style.background  = sb;
+  if (dot) dot.style.background = ac;
+  if (bar) bar.style.background = ac + '40';
+}
+
+// ── Firma del dev ────────────────────────────────────────
+function abrirFirmaDev() {
+  document.getElementById('dev-nombre').value = configGlobal.dev_nombre || '';
+  document.getElementById('dev-tel').value    = configGlobal.dev_tel    || '';
+  actualizarPrevDev();
+  Modal.open('modal-dev');
+}
+async function guardarFirmaDev() {
+  const nombre = document.getElementById('dev-nombre').value.trim();
+  const tel    = document.getElementById('dev-tel').value.trim();
+  try {
+    await db.collection('configuracion').doc('global').set({ dev_nombre: nombre, dev_tel: tel }, { merge:true });
+    configGlobal.dev_nombre = nombre;
+    configGlobal.dev_tel    = tel;
+    Toast.success('Firma guardada.');
+    Modal.close('modal-dev');
+    await renderPagina();
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+function actualizarPrevDev() {
+  const nombre = document.getElementById('dev-nombre')?.value || '';
+  const tel    = document.getElementById('dev-tel')?.value    || '';
+  const pn = document.getElementById('prev-dev-nombre');
+  const pt = document.getElementById('prev-dev-tel');
+  const pw = document.getElementById('prev-dev-tel-wrap');
+  if (pn) pn.textContent = nombre || '—';
+  if (pt) pt.textContent = tel;
+  if (pw) pw.style.display = tel.trim() ? '' : 'none';
+}
+
+// ── Exportar JSON ────────────────────────────────────────
+async function exportarReservas() {
+  try {
+    Toast.info('Preparando exportación...');
+    const snap = await db.collection('reservas').get();
+    const datos = [];
+    snap.forEach(d => datos.push({ id: d.id, ...d.data() }));
+    const blob = new Blob([JSON.stringify(datos, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `reservas_${new Date().toISOString().split('T')[0]}.json`;
+    a.click(); URL.revokeObjectURL(url);
+    Toast.success(`${datos.length} reservas exportadas.`);
+  } catch(e) { Toast.error('Error: ' + e.message); }
+}
+
+// ── Limpiar notificaciones ───────────────────────────────
+async function limpiarNotificaciones() {
+  confirmar('¿Eliminar TODAS las notificaciones del sistema?', async () => {
+    try {
+      const snap = await db.collection('notificaciones').get();
+      const batch = db.batch();
+      snap.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+      Toast.success('Notificaciones eliminadas.');
+    } catch(e) { Toast.error('Error: ' + e.message); }
+  });
+}
+</script>
+</body>
+</html>
