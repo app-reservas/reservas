@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Negocios — ReservaSystem</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/img/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/img/favicon-16x16.png">
+  <link rel="shortcut icon" href="../assets/img/favicon.ico">
+  <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+  <link rel="stylesheet" href="../assets/css/dark.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+</head>
+<body>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="../assets/js/firebase-config.js"></script>
+  <script src="../assets/js/helpers.js"></script>
+  <script src="../assets/js/sidebar.js?v=2"></script>
+
+  <script>
+    let NEGOCIOS_CACHE = []; // cache en memoria para filtrar sin volver a pegarle a Firestore
+
+    (async () => {
+      const usuario = await requireLogin('superadmin');
+
+      renderLayoutAdmin({
+        titulo: 'Negocios',
+        subtitulo: 'Gestión de negocios registrados en el sistema',
+        nombreUsuario: usuario.nombre,
+        rolLabel: 'Super Administrador',
+        topbarActionsHTML: `
+          <button class="btn btn-primary" onclick="abrirModalNuevo()">
+            <i class="ti ti-plus"></i> Nuevo negocio
+          </button>`,
+      });
+
+      await cargarNegocios();
+    })();
+
+    // ============================================================
+    //  CARGA + RENDER
+    // ============================================================
+    async function cargarNegocios() {
+      const cont = document.getElementById('page-content');
+      cont.innerHTML = `<div style="text-align:center;padding:60px"><span class="spinner"></span></div>`;
+
+      const [negociosSnap, usuariosSnap, reservasSnap] = await Promise.all([
+        db.collection('negocios').get(),
+        db.collection('usuarios').where('rol', '==', 'gerente').get(),
+        db.collection('reservas').get(),
+      ]);
+
+      // Gerente por negocio (1er gerente encontrado, igual que el LIMIT 1 del PHP)
+      const gerentePorNegocio = {};
+      usuariosSnap.forEach(d => {
+        const u = d.data();
+        if (u.negocio_id && !gerentePorNegocio[u.negocio_id]) gerentePorNegocio[u.negocio_id] = u.nombre;
+      });
+
+      // Conteo de reservas por negocio
+      const reservasPorNegocio = {};
+      reservasSnap.forEach(d => {
+        const r = d.data();
+        if (r.negocio_id) reservasPorNegocio[r.negocio_id] = (reservasPorNegocio[r.negocio_id] || 0) + 1;
+      });
+
+      const negocios = [];
+      negociosSnap.forEach(d => negocios.push({
+        id: d.id,
+        ...d.data(),
+        total_reservas: reservasPorNegocio[d.id] || 0,
+        gerente_nombre: gerentePorNegocio[d.id] || null,
+      }));
+
+      // Orden: más nuevo primero (igual que ORDER BY id DESC). Usamos creado_en si existe.
+      negocios.sort((a, b) => (b.creado_en?.seconds || 0) - (a.creado_en?.seconds || 0));
+
+      NEGOCIOS_CACHE = negocios;
+      renderNegocios(negocios);
+    }
+
+    function renderNegocios(negocios) {
+      const cont = document.getElementById('page-content');
+
+      const total   = negocios.length;
+      const activos  = negocios.filter(n => n.activo !== false).length;
+      const sinGer   = negocios.filter(n => !n.gerente_nombre).length;
+      const conRes   = negocios.filter(n => n.total_reservas > 0).length;
+
+      const alertaHTML = sinGer > 0 ? `
+        <div class="alert alert-warning mb-4">
+          <i class="ti ti-alert-triangle"></i>
+          <div>Tenés <strong>${sinGer} negocio(s) sin gerente asignado</strong>. Sin gerente, el negocio no puede ser administrado por su dueño. Creá un usuario con rol Gerente y asignalo.</div>
+        </div>` : '';
+
+      const filasHTML = negocios.length === 0 ? `
+        <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted)">
+          <i class="ti ti-building-store" style="font-size:36px;display:block;margin-bottom:10px;opacity:0.4"></i>
+          No hay negocios registrados.<br>
+          <button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="abrirModalNuevo()">
+            <i class="ti ti-plus"></i> Crear primer negocio
+          </button>
+        </td></tr>` : negocios.map(n => {
+          const color = n.color_primario || '#3B5BDB';
+          const linkPublico = `../public/p-${encodeURIComponent(n.slug || '')}.html`;
+          return `
+        <tr data-id="${n.id}">
+          <td style="color:var(--text-muted);font-size:12px">#${n.id.substring(0,4)}</td>
+
+          <td>
+            <div style="display:flex;align-items:center;gap:10px;min-width:0">
+              <div style="width:36px;height:36px;border-radius:8px;background:${color}22;border:1px solid ${color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ti-building-store" style="color:${color};font-size:18px"></i>
+              </div>
+              <div style="min-width:0">
+                <div style="font-weight:600;color:var(--text-primary);max-width:135px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${limpiar(n.nombre)}">${limpiar(n.nombre)}</div>
+                ${n.email ? `<div style="font-size:12px;color:var(--text-muted);max-width:135px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${limpiar(n.email)}">${limpiar(n.email)}</div>` : ''}
+              </div>
+            </div>
+          </td>
+
+          <td>
+            <div style="display:flex;align-items:center;gap:4px;min-width:0">
+              <code style="background:var(--bg-surface);padding:2px 8px;border-radius:5px;font-size:12px;color:var(--indigo-300);max-width:85px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block" title="/${limpiar(n.slug || '')}">/${limpiar(n.slug || '')}</code>
+              <a href="${linkPublico}" target="_blank" class="btn btn-ghost btn-icon btn-sm" title="Ver página pública">
+                <i class="ti ti-external-link"></i>
+              </a>
+              <button onclick="copiarLinkNegocio('${linkPublico}')" class="btn btn-ghost btn-icon btn-sm" title="Copiar link para WhatsApp">
+                <i class="ti ti-copy"></i>
+              </button>
+            </div>
+          </td>
+
+          <td>
+            ${n.gerente_nombre ? `
+              <span style="display:flex;align-items:center;gap:5px;font-size:13px;max-width:105px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${limpiar(n.gerente_nombre)}">
+                <i class="ti ti-user-check" style="color:#69db7c;flex-shrink:0"></i>
+                <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${limpiar(n.gerente_nombre)}</span>
+              </span>` : `
+              <span style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--estado-pendiente)">
+                <i class="ti ti-alert-circle"></i> Sin gerente
+              </span>`}
+          </td>
+
+          <td>
+            <span style="font-weight:700;color:var(--text-primary)">${n.total_reservas}</span>
+            <span style="font-size:11px;color:var(--text-muted)"> reservas</span>
+          </td>
+
+          <td>
+            <button onclick="toggleEstadoNegocio('${n.id}', this)" class="badge-estado ${n.activo !== false ? 'estado-confirmada' : 'estado-cancelada'}" style="cursor:pointer;border:none">
+              <i class="ti ${n.activo !== false ? 'ti-check' : 'ti-x'}"></i>
+              ${n.activo !== false ? 'Activo' : 'Inactivo'}
+            </button>
+          </td>
+
+          <td>
+            <div style="display:flex;gap:4px;justify-content:center">
+              <button onclick="editarNegocio('${n.id}')" class="btn btn-ghost btn-icon btn-sm" title="Editar">
+                <i class="ti ti-edit"></i>
+              </button>
+              <button onclick="eliminarNegocioBtn('${n.id}', '${escJS(n.nombre)}')" class="btn btn-danger btn-icon btn-sm" title="Eliminar">
+                <i class="ti ti-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>`;
+        }).join('');
+
+      cont.innerHTML = `
+        <div class="kpi-grid mb-6">
+          <div class="kpi-card"><div class="kpi-icon indigo"><i class="ti ti-building-store"></i></div>
+            <div><div class="kpi-value" data-counter="${total}">${total}</div><div class="kpi-label">Total negocios</div></div></div>
+          <div class="kpi-card"><div class="kpi-icon green"><i class="ti ti-check"></i></div>
+            <div><div class="kpi-value" data-counter="${activos}">${activos}</div><div class="kpi-label">Activos</div></div></div>
+          <div class="kpi-card"><div class="kpi-icon amber"><i class="ti ti-user-off"></i></div>
+            <div>
+              <div class="kpi-value" data-counter="${sinGer}">${sinGer}</div>
+              <div class="kpi-label">Sin gerente</div>
+              ${sinGer > 0 ? `<div class="kpi-trend down">⚠ Asignar gerente</div>` : ''}
+            </div></div>
+          <div class="kpi-card"><div class="kpi-icon cyan"><i class="ti ti-calendar-check"></i></div>
+            <div><div class="kpi-value" data-counter="${conRes}">${conRes}</div><div class="kpi-label">Con reservas</div></div></div>
+        </div>
+
+        ${alertaHTML}
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-building-store"></i> Todos los negocios</div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <div style="position:relative">
+                <i class="ti ti-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:16px"></i>
+                <input type="text" id="buscador" class="form-control" placeholder="Buscar negocio..." style="padding-left:34px;width:220px" oninput="filtrarTablaNegocios(this.value)">
+              </div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table class="tabla" id="tabla-negocios">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Negocio</th>
+                  <th>Slug / Link público</th>
+                  <th>Gerente</th>
+                  <th>Reservas</th>
+                  <th>Estado</th>
+                  <th style="text-align:center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="tbody-negocios">
+                ${filasHTML}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ===== MODAL NEGOCIO ===== -->
+        <div class="modal-overlay" id="modal-negocio">
+          <div class="modal" style="max-width:600px">
+            <div class="modal-header">
+              <div class="modal-title" id="modal-neg-titulo">Nuevo negocio</div>
+              <button class="btn btn-ghost btn-icon" onclick="Modal.close('modal-negocio')">
+                <i class="ti ti-x"></i>
+              </button>
+            </div>
+
+            <form id="form-negocio" novalidate>
+              <input type="hidden" id="neg-id" value="">
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Nombre del negocio *</label>
+                  <input type="text" id="neg-nombre" class="form-control" placeholder="Ej: Barbería El Maestro" required oninput="generarSlugNegocio(this.value)">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Slug (URL) *</label>
+                  <div style="display:flex;gap:6px;align-items:center">
+                    <input type="text" id="neg-slug" class="form-control" placeholder="barberia-el-maestro" required style="font-family:monospace">
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+                    Link público: <span id="slug-preview" style="color:var(--indigo-300)">../public/reserva.html?negocio=...</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Descripción</label>
+                <textarea id="neg-desc" class="form-control" rows="2" placeholder="Descripción breve del negocio..."></textarea>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Email</label>
+                  <input type="email" id="neg-email" class="form-control" placeholder="negocio@email.com">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Teléfono</label>
+                  <input type="text" id="neg-tel" class="form-control" placeholder="+54 351 123-4567">
+                </div>
+              </div>
+
+              <div class="grid-2">
+                <div class="form-group">
+                  <label class="form-label">Dirección</label>
+                  <input type="text" id="neg-dir" class="form-control" placeholder="Calle 123, Ciudad">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Color de marca</label>
+                  <div style="display:flex;gap:8px;align-items:center">
+                    <input type="color" id="neg-color" value="#3B5BDB"
+                           style="width:46px;height:38px;border-radius:8px;border:1px solid var(--border-strong);background:none;cursor:pointer;padding:2px">
+                    <input type="text" id="neg-color-hex" class="form-control" value="#3B5BDB"
+                           style="font-family:monospace" oninput="sincronizarColorNegocio(this.value)" maxlength="7">
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Logo del negocio</label>
+                <div style="display:flex;gap:12px;align-items:center">
+                  <img id="neg-logo-preview" src="" style="width:54px;height:54px;border-radius:10px;object-fit:cover;border:1px solid var(--border-strong);display:none">
+                  <input type="file" id="neg-logo-file" accept="image/*" class="form-control" style="flex:1">
+                  <input type="hidden" id="neg-logo-url" value="">
+                </div>
+                <div id="neg-logo-status" style="font-size:11px;color:var(--text-muted);margin-top:4px"></div>
+              </div>
+
+              <div class="form-group" style="display:flex;align-items:center;gap:10px">
+                <input type="checkbox" id="neg-activo" checked
+                       style="width:18px;height:18px;cursor:pointer;accent-color:var(--indigo-500)">
+                <label for="neg-activo" style="cursor:pointer;color:var(--text-secondary)">Negocio activo</label>
+              </div>
+
+              <div class="divider"></div>
+
+              <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn btn-ghost" onclick="Modal.close('modal-negocio')">Cancelar</button>
+                <button type="submit" class="btn btn-primary" id="btn-guardar-neg">
+                  <i class="ti ti-device-floppy"></i> Guardar negocio
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('form-negocio').addEventListener('submit', guardarNegocio);
+
+      // Animar contadores
+      document.querySelectorAll('[data-counter]').forEach(el => {
+        animarContador(el, parseFloat(el.dataset.counter) || 0, el.dataset.prefix || '', el.dataset.suffix || '');
+      });
+    }
+
+    // ============================================================
+    //  FILTRO DE TABLA
+    // ============================================================
+    function filtrarTablaNegocios(q) {
+      const rows = document.querySelectorAll('#tbody-negocios tr[data-id]');
+      q = q.toLowerCase();
+      rows.forEach(r => {
+        r.style.display = r.textContent.toLowerCase().includes(q) ? '' : 'none';
+      });
+    }
+
+    // ============================================================
+    //  SLUG + COLOR (modal)
+    // ============================================================
+    function generarSlugNegocio(nombre) {
+      const slug = nombre.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s\-]/g, '')
+        .trim().replace(/\s+/g, '-');
+      document.getElementById('neg-slug').value = slug;
+      actualizarPreviewSlugNegocio(slug);
+    }
+    function actualizarPreviewSlugNegocio(slug) {
+      document.getElementById('slug-preview').textContent = '../public/reserva.html?negocio=' + (slug || '...');
+    }
+    function sincronizarColorNegocio(hex) {
+      if (/^#[0-9A-Fa-f]{6}$/.test(hex)) document.getElementById('neg-color').value = hex;
+    }
+
+    // ============================================================
+    //  ABRIR MODAL NUEVO
+    // ============================================================
+    function abrirModalNuevo() {
+      document.getElementById('modal-neg-titulo').textContent = 'Nuevo negocio';
+      document.getElementById('form-negocio').reset();
+      document.getElementById('neg-id').value = '';
+      document.getElementById('neg-color').value = '#3B5BDB';
+      document.getElementById('neg-color-hex').value = '#3B5BDB';
+      document.getElementById('neg-activo').checked = true;
+      document.getElementById('neg-logo-url').value = '';
+      document.getElementById('neg-logo-preview').style.display = 'none';
+      document.getElementById('neg-logo-status').textContent = '';
+      actualizarPreviewSlugNegocio('');
+      Modal.open('modal-negocio');
+    }
+
+    // ============================================================
+    //  EDITAR
+    // ============================================================
+    function editarNegocio(id) {
+      const n = NEGOCIOS_CACHE.find(x => x.id === id);
+      if (!n) { Toast.error('No se encontró el negocio'); return; }
+
+      document.getElementById('modal-neg-titulo').textContent = 'Editar negocio';
+      document.getElementById('neg-id').value        = n.id;
+      document.getElementById('neg-nombre').value    = n.nombre || '';
+      document.getElementById('neg-slug').value      = n.slug || '';
+      document.getElementById('neg-desc').value      = n.descripcion || '';
+      document.getElementById('neg-email').value     = n.email || '';
+      document.getElementById('neg-tel').value       = n.telefono || '';
+      document.getElementById('neg-dir').value       = n.direccion || '';
+      document.getElementById('neg-color').value     = n.color_primario || '#3B5BDB';
+      document.getElementById('neg-color-hex').value = n.color_primario || '#3B5BDB';
+      document.getElementById('neg-activo').checked  = n.activo !== false;
+      document.getElementById('neg-logo-url').value  = n.logo || '';
+
+      const preview = document.getElementById('neg-logo-preview');
+      if (n.logo) { preview.src = n.logo; preview.style.display = ''; }
+      else { preview.style.display = 'none'; }
+      document.getElementById('neg-logo-status').textContent = '';
+
+      actualizarPreviewSlugNegocio(n.slug || '');
+      Modal.open('modal-negocio');
+    }
+
+    // ============================================================
+    //  SUBIDA DE LOGO A CLOUDINARY (unsigned upload)
+    // ============================================================
+    async function subirLogoCloudinary(file) {
+      const url = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/upload`;
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('upload_preset', CLOUDINARY_PRESET);
+      fd.append('folder', 'reservas/negocios');
+      const res = await fetch(url, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Error subiendo imagen a Cloudinary');
+      const data = await res.json();
+      return data.secure_url;
+    }
+
+    // ============================================================
+    //  GUARDAR (crear o editar)
+    // ============================================================
+    async function guardarNegocio(e) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-guardar-neg');
+      const id = document.getElementById('neg-id').value;
+
+      const nombre = document.getElementById('neg-nombre').value.trim();
+      const slug   = document.getElementById('neg-slug').value.trim();
+      if (!nombre || !slug) { Toast.error('Nombre y slug son obligatorios'); return; }
+
+      // Validar slug único (excepto contra sí mismo si estamos editando)
+      const slugDuplicado = NEGOCIOS_CACHE.some(n => n.slug === slug && n.id !== id);
+      if (slugDuplicado) { Toast.error('Ese slug ya está en uso por otro negocio'); return; }
+
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner"></span> Guardando...`;
+
+      try {
+        let logoUrl = document.getElementById('neg-logo-url').value || null;
+        const logoFile = document.getElementById('neg-logo-file').files[0];
+        if (logoFile) {
+          document.getElementById('neg-logo-status').textContent = 'Subiendo imagen...';
+          logoUrl = await subirLogoCloudinary(logoFile);
+        }
+
+        const payload = {
+          nombre,
+          slug,
+          descripcion: document.getElementById('neg-desc').value.trim() || null,
+          email: document.getElementById('neg-email').value.trim() || null,
+          telefono: document.getElementById('neg-tel').value.trim() || null,
+          direccion: document.getElementById('neg-dir').value.trim() || null,
+          color_primario: document.getElementById('neg-color-hex').value || '#3B5BDB',
+          activo: document.getElementById('neg-activo').checked,
+          logo: logoUrl,
+        };
+
+        if (id) {
+          await db.collection('negocios').doc(id).update(payload);
+          Toast.success('Negocio actualizado correctamente');
+        } else {
+          payload.creado_en = firebase.firestore.FieldValue.serverTimestamp();
+          await db.collection('negocios').add(payload);
+          Toast.success('Negocio creado correctamente');
+        }
+
+        Modal.close('modal-negocio');
+        await cargarNegocios();
+      } catch (err) {
+        console.error(err);
+        Toast.error('Error al guardar: ' + (err.message || 'desconocido'));
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="ti ti-device-floppy"></i> Guardar negocio`;
+      }
+    }
+
+    // ============================================================
+    //  TOGGLE ESTADO (activo/inactivo)
+    // ============================================================
+    async function toggleEstadoNegocio(id, btnEl) {
+      const n = NEGOCIOS_CACHE.find(x => x.id === id);
+      if (!n) return;
+      const nuevoEstado = !(n.activo !== false);
+      try {
+        await db.collection('negocios').doc(id).update({ activo: nuevoEstado });
+        n.activo = nuevoEstado;
+        btnEl.className = `badge-estado ${nuevoEstado ? 'estado-confirmada' : 'estado-cancelada'}`;
+        btnEl.innerHTML = `<i class="ti ${nuevoEstado ? 'ti-check' : 'ti-x'}"></i> ${nuevoEstado ? 'Activo' : 'Inactivo'}`;
+        Toast.success(nuevoEstado ? 'Negocio activado' : 'Negocio desactivado');
+      } catch (err) {
+        console.error(err);
+        Toast.error('No se pudo cambiar el estado');
+      }
+    }
+
+    // ============================================================
+    //  ELIMINAR
+    // ============================================================
+    function eliminarNegocioBtn(id, nombre) {
+      confirmar(`¿Eliminar "${nombre}"? No se puede deshacer.`, async () => {
+        try {
+          await db.collection('negocios').doc(id).delete();
+          Toast.success('Negocio eliminado correctamente');
+          await cargarNegocios();
+        } catch (err) {
+          console.error(err);
+          Toast.error('Error al eliminar');
+        }
+      });
+    }
+
+    // ============================================================
+    //  COPIAR LINK (WhatsApp)
+    // ============================================================
+    function copiarLinkNegocio(linkRelativo) {
+      const link = new URL(linkRelativo, window.location.href).href;
+      navigator.clipboard.writeText(link).then(
+        () => Toast.success('¡Link copiado! Pegalo en WhatsApp 🚀'),
+        () => {
+          const ta = document.createElement('textarea');
+          ta.value = link; document.body.appendChild(ta);
+          ta.select(); document.execCommand('copy');
+          document.body.removeChild(ta);
+          Toast.success('¡Link copiado!');
+        }
+      );
+    }
+  </script>
+
+  <script src="../assets/js/app.js?v=2"></script>
+</body>
+</html>
